@@ -1,0 +1,49 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: insurance_claims_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore backend/InsuranceClaims.slnx
+
+      - name: Build
+        run: dotnet build backend/InsuranceClaims.slnx --no-restore --configuration Release
+
+      - name: Run unit tests
+        run: dotnet test backend/tests/InsuranceClaims.UnitTests/InsuranceClaims.UnitTests.csproj --no-build --configuration Release --verbosity normal
+
+      - name: Run integration tests
+        run: dotnet test backend/tests/InsuranceClaims.IntegrationTests/InsuranceClaims.IntegrationTests.csproj --no-build --configuration Release --verbosity normal
+        env:
+          ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=insurance_claims_test;Username=postgres;Password=postgres_test"

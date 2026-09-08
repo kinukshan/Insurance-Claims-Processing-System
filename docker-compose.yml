@@ -1,0 +1,23 @@
+# docker-compose.yml
+# Insurance Claims Processing System
+#
+# Currently provides PostgreSQL only.
+# Additional services (API, React, AI) will be added
+# once Dockerfiles are created during deployment work.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: insurance-claims-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: insurance_claims
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_dev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
