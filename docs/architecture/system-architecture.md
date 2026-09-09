@@ -5,7 +5,7 @@ Draft — to be completed during implementation.
 
 ## Overview
 
-<!-- TODO: Add high-level system architecture diagram -->
+The Insurance Claims Processing System uses a layered architecture with Neon PostgreSQL as the cloud-hosted primary database.
 
 ## Architecture Diagram
 
@@ -23,9 +23,22 @@ Draft — to be completed during implementation.
        └────────┬────────┘
                 │
        ┌────────▼────────┐       ┌──────────────┐
-       │   PostgreSQL    │       │  AI Service  │
-       │   (EF Core)    │       │  (Internal)  │
-       └─────────────────┘       └──────────────┘
+       │ Neon PostgreSQL │       │  AI Service  │
+       │  (EF Core +     │       │  (Internal)  │
+       │   Npgsql)       │       └──────────────┘
+       └─────────────────┘
+```
+
+### Database Connection Detail
+
+```
+ASP.NET Core Web API
+        ↓
+  Entity Framework Core
+        ↓
+  Npgsql (EF Core PostgreSQL Provider)
+        ↓
+  Neon PostgreSQL (cloud-hosted PostgreSQL)
 ```
 
 ## Layers
@@ -48,7 +61,7 @@ Draft — to be completed during implementation.
 - Enums
 
 ### Infrastructure Layer
-- Entity Framework Core (PostgreSQL)
+- Entity Framework Core with Npgsql (Neon PostgreSQL)
 - JWT authentication
 - External service integrations
 - AI service integration client
@@ -60,4 +73,10 @@ Draft — to be completed during implementation.
 
 ## Key Design Decisions
 
-<!-- TODO: Document key architecture decisions -->
+- **Neon PostgreSQL** is the primary database — a cloud-hosted PostgreSQL service
+- **Entity Framework Core + Npgsql** is the ORM/provider — no change from standard PostgreSQL usage
+- **Connection strings** are managed securely via User Secrets or environment variables, never committed
+- **Docker Compose PostgreSQL** is retained as an optional local fallback only
+- React and Flutter **never** connect directly to the database or AI service
+
+<!-- TODO: Document additional key architecture decisions -->

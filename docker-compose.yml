@@ -1,14 +1,28 @@
 # docker-compose.yml
 # Insurance Claims Processing System
 #
-# Currently provides PostgreSQL only.
-# Additional services (API, React, AI) will be added
-# once Dockerfiles are created during deployment work.
+# ============================================================
+# OPTIONAL LOCAL FALLBACK ONLY
+# ============================================================
+# The project's PRIMARY database is Neon PostgreSQL (cloud).
+# This Docker Compose file provides a LOCAL PostgreSQL instance
+# as an optional fallback for offline or isolated development.
+#
+# For normal development, connect directly to Neon PostgreSQL
+# using 'dotnet user-secrets' or the environment variable:
+#   ConnectionStrings__DefaultConnection
+#
+# To use this local fallback instead:
+#   docker compose up -d
+# Then set:
+#   ConnectionStrings__DefaultConnection=
+#     "Host=localhost;Port=5432;Database=insurance_claims;Username=postgres;Password=postgres_dev"
+# ============================================================
 
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: insurance-claims-db
+    container_name: insurance-claims-db-local
     restart: unless-stopped
     ports:
       - "5432:5432"

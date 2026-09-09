@@ -11,27 +11,40 @@ A cross-platform insurance claims processing system with agentic AI capabilities
 
 ```
 React (Staff) ────────┐
-                       ├──► ASP.NET Core Web API ──► PostgreSQL
+                       ├──► ASP.NET Core Web API ──► Neon PostgreSQL
 Flutter (Policyholder)─┘           │
                                    ▼
                           Agentic AI Service
                           (Internal Only)
 ```
 
-**ASP.NET Core is the ONLY public backend.** React and Flutter never call the AI service directly.
+**ASP.NET Core is the ONLY public backend.** React and Flutter never call the AI service or database directly.
+
+### Database Connection Architecture
+
+```
+ASP.NET Core Web API
+        ↓
+  Entity Framework Core
+        ↓
+      Npgsql
+        ↓
+  Neon PostgreSQL
+```
 
 ## Technology Stack
 
-| Layer          | Technology                         |
-|----------------|------------------------------------|
-| Backend API    | C# / ASP.NET Core Web API          |
-| ORM            | Entity Framework Core               |
-| Database       | PostgreSQL                          |
-| Web Frontend   | React (Vite)                        |
-| Mobile App     | Flutter / Dart                      |
-| Agentic AI     | Python / FastAPI (internal service)  |
-| CI/CD          | GitHub Actions                      |
-| Containerization| Docker / Docker Compose            |
+| Layer           | Technology                                    |
+|-----------------|-----------------------------------------------|
+| Backend API     | C# / ASP.NET Core Web API (.NET 10)           |
+| ORM             | Entity Framework Core 10.x                    |
+| Database        | Neon PostgreSQL (cloud-hosted PostgreSQL)      |
+| DB Provider     | Npgsql.EntityFrameworkCore.PostgreSQL          |
+| Web Frontend    | React (Vite)                                  |
+| Mobile App      | Flutter / Dart                                |
+| Agentic AI      | Python / FastAPI (internal service)            |
+| CI/CD           | GitHub Actions                                |
+| Containerization| Docker / Docker Compose (optional local only) |
 
 ## Business Components
 
@@ -56,14 +69,14 @@ Flutter (Policyholder)─┘           │
 ```
 Flutter (Policyholder submits claim)
     → ASP.NET Core (validates & persists)
-    → PostgreSQL (saves claim)
+    → Neon PostgreSQL (saves claim)
     → ASP.NET Core (starts AI workflow)
     → Coordinator Agent → Document Verification → Fraud/Risk → Validation
     → Pending Human Approval
     → React (Adjuster: Approve / Reject / Request Revision)
     → ASP.NET Core (records decision)
     → Payout Processing
-    → PostgreSQL (updated)
+    → Neon PostgreSQL (updated)
     → Flutter (displays updated status)
 ```
 
@@ -83,19 +96,67 @@ Flutter (Policyholder submits claim)
 
 ### Prerequisites
 
-- .NET 8 SDK
+- .NET 10 SDK
 - Node.js 18+
 - Flutter 3.x
 - Python 3.11+
-- PostgreSQL 15+
-- Docker & Docker Compose
+- Docker & Docker Compose (optional — only for local PostgreSQL fallback)
+
+### Database Setup (Neon PostgreSQL)
+
+1. **Create a Neon project** at [neon.tech](https://neon.tech).
+2. **Obtain the connection string** from the Neon dashboard. It will look like:
+   ```
+   Host=<neon-host>;Database=<database>;Username=<username>;Password=<password>;SSL Mode=Require
+   ```
+3. **Store the connection string securely** using one of these methods:
+
+   **Option A — Environment variable:**
+   ```bash
+   export ConnectionStrings__DefaultConnection="Host=<neon-host>;Database=<database>;Username=<username>;Password=<password>;SSL Mode=Require"
+   ```
+
+   **Option B — .NET User Secrets (recommended for local development):**
+   ```bash
+   cd backend/src/InsuranceClaims.Api
+   dotnet user-secrets init
+   dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=<neon-host>;Database=<database>;Username=<username>;Password=<password>;SSL Mode=Require"
+   ```
+
+4. **Never commit the real connection string** to source control.
+
+### Optional: Local PostgreSQL Fallback
+
+If you need to work offline without Neon, a Docker Compose file is provided:
+
+```bash
+docker compose up -d
+```
+
+Then set the connection string to the local instance:
+```bash
+export ConnectionStrings__DefaultConnection="Host=localhost;Port=5432;Database=insurance_claims;Username=postgres;Password=postgres_dev"
+```
+
+### Running EF Core Migrations
+
+```bash
+# Add a new migration
+dotnet ef migrations add <MigrationName> \
+  --project backend/src/InsuranceClaims.Infrastructure \
+  --startup-project backend/src/InsuranceClaims.Api
+
+# Apply migrations to the database
+dotnet ef database update \
+  --project backend/src/InsuranceClaims.Infrastructure \
+  --startup-project backend/src/InsuranceClaims.Api
+```
+
+> **Note:** Only run `database update` when a valid Neon (or local) connection string is configured.
 
 ### Quick Start
 
 ```bash
-# Start PostgreSQL
-docker-compose up -d
-
 # Backend
 cd backend
 dotnet restore
