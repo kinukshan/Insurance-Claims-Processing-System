@@ -23,5 +23,32 @@ class RiskAssessment {
     this.lastUpdated,
   });
 
-  // TODO: Add fromJson, toJson
+  /// Creates a RiskAssessment from a JSON map returned by the backend API.
+  factory RiskAssessment.fromJson(Map<String, dynamic> json) {
+    return RiskAssessment(
+      id: json['claimId']?.toString() ?? '',
+      claimId: json['claimId']?.toString() ?? '',
+      reviewStatus: json['reviewStatus']?.toString() ?? 'Additional Review Required',
+      lastUpdated: json['lastUpdated'] != null
+          ? DateTime.tryParse(json['lastUpdated'].toString())
+          : null,
+    );
+  }
+
+  /// Converts to a JSON map.
+  Map<String, dynamic> toJson() {
+    return {
+      'claimId': claimId,
+      'reviewStatus': reviewStatus,
+      'lastUpdated': lastUpdated?.toIso8601String(),
+    };
+  }
+
+  /// Returns whether the review is still pending.
+  bool get isPending =>
+      reviewStatus == 'Additional Review Required' ||
+      reviewStatus == 'Under Manual Review';
+
+  /// Returns whether the review is complete.
+  bool get isComplete => reviewStatus == 'Review Completed';
 }
