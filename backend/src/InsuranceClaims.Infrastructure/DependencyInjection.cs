@@ -2,6 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using InsuranceClaims.Infrastructure.Persistence;
+using InsuranceClaims.Infrastructure.Repositories;
+using InsuranceClaims.Infrastructure.ExternalServices.Payments;
+using InsuranceClaims.Infrastructure.AgentIntegration;
+using InsuranceClaims.Application.PayoutProcessing.Interfaces;
+using InsuranceClaims.Application.PayoutProcessing.Services;
 
 namespace InsuranceClaims.Infrastructure;
 
@@ -18,6 +23,15 @@ public static class DependencyInjection
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection")));
+
+        // ── Payout Processing ────────────────────────────────────────
+        services.AddScoped<IPayoutRepository, PayoutRepository>();
+        services.AddScoped<IPayoutService, PayoutService>();
+        services.AddScoped<IPayoutContextProvider, StubPayoutContextProvider>();
+        services.AddScoped<IPaymentGateway, SandboxPaymentGateway>();
+
+        // Agent integration: ASP.NET Core → Internal AI Service
+        services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
 
         // TODO: Register repositories, authentication services, external service clients
 
