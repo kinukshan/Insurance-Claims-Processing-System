@@ -50,7 +50,9 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // TODO: Add entity configurations during implementation
+        // Claims Management configurations
+        modelBuilder.ApplyConfiguration(new Configurations.ClaimConfiguration());
+        modelBuilder.ApplyConfiguration(new Configurations.ClaimDocumentConfiguration());
     }
 
     public override int SaveChanges()
