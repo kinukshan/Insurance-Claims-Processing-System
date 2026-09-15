@@ -1,28 +1,51 @@
-// Create new policy — Component A (Member 1)
-// Implements policy creation form with validation
+// Edit policy — Component A (Member 1)
+// Pre-populates form with existing policy data, validates, and submits update
 
-import React, { useState } from 'react'
-import { createPolicy } from '../../services/policyService'
+import React, { useState, useEffect } from 'react'
+import { getPolicyById, updatePolicy } from '../../services/policyService'
 
-function PolicyCreate({ onBack, onCreated }) {
+const STATUS_OPTIONS = ['Draft', 'Active', 'Cancelled']
+
+function PolicyEdit({ policyId, onBack, onUpdated }) {
   const [formData, setFormData] = useState({
-    policyholderId: '',
-    policyTypeId: '',
     coverageLimit: '',
     deductible: '',
-    startDate: '',
     expiryDate: '',
     exclusions: '',
+    status: '',
   })
+  const [originalPolicy, setOriginalPolicy] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [success, setSuccess] = useState(false)
 
+  useEffect(() => {
+    const fetchPolicy = async () => {
+      setLoading(true)
+      try {
+        const policy = await getPolicyById(policyId)
+        setOriginalPolicy(policy)
+        setFormData({
+          coverageLimit: String(policy.coverageLimit),
+          deductible: String(policy.deductible),
+          expiryDate: policy.expiryDate ? policy.expiryDate.split('T')[0] : '',
+          exclusions: policy.exclusions || '',
+          status: policy.status,
+        })
+      } catch (err) {
+        setSubmitError(err.message || 'Failed to load policy.')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchPolicy()
+  }, [policyId])
+
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
-    // Clear field error on change
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: null }))
     }
@@ -30,24 +53,6 @@ function PolicyCreate({ onBack, onCreated }) {
 
   const validate = () => {
     const newErrors = {}
-
-    if (!formData.policyholderId.trim()) {
-      newErrors.policyholderId = 'Policyholder ID is required.'
-    } else {
-      const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      if (!guidRegex.test(formData.policyholderId.trim())) {
-        newErrors.policyholderId = 'Must be a valid GUID.'
-      }
-    }
-
-    if (!formData.policyTypeId.trim()) {
-      newErrors.policyTypeId = 'Policy Type ID is required.'
-    } else {
-      const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      if (!guidRegex.test(formData.policyTypeId.trim())) {
-        newErrors.policyTypeId = 'Must be a valid GUID.'
-      }
-    }
 
     const coverageLimit = Number(formData.coverageLimit)
     if (!formData.coverageLimit || coverageLimit <= 0) {
@@ -57,18 +62,6 @@ function PolicyCreate({ onBack, onCreated }) {
     const deductible = Number(formData.deductible)
     if (formData.deductible !== '' && deductible < 0) {
       newErrors.deductible = 'Deductible cannot be negative.'
-    }
-
-    if (!formData.startDate) {
-      newErrors.startDate = 'Start date is required.'
-    }
-
-    if (!formData.expiryDate) {
-      newErrors.expiryDate = 'Expiry date is required.'
-    }
-
-    if (formData.startDate && formData.expiryDate && formData.startDate >= formData.expiryDate) {
-      newErrors.expiryDate = 'Expiry date must be after start date.'
     }
 
     if (formData.exclusions && formData.exclusions.length > 2000) {
@@ -89,19 +82,17 @@ function PolicyCreate({ onBack, onCreated }) {
     setSubmitting(true)
     try {
       const payload = {
-        policyholderId: formData.policyholderId.trim(),
-        policyTypeId: formData.policyTypeId.trim(),
         coverageLimit: Number(formData.coverageLimit),
         deductible: Number(formData.deductible) || 0,
-        startDate: new Date(formData.startDate).toISOString(),
-        expiryDate: new Date(formData.expiryDate).toISOString(),
+        expiryDate: formData.expiryDate ? new Date(formData.expiryDate).toISOString() : undefined,
         exclusions: formData.exclusions || null,
+        status: formData.status,
       }
-      const created = await createPolicy(payload)
+      const updated = await updatePolicy(policyId, payload)
       setSuccess(true)
-      if (onCreated) onCreated(created)
+      if (onUpdated) onUpdated(updated)
     } catch (err) {
-      setSubmitError(err.message || 'Failed to create policy.')
+      setSubmitError(err.message || 'Failed to update policy.')
     } finally {
       setSubmitting(false)
     }
@@ -115,12 +106,17 @@ function PolicyCreate({ onBack, onCreated }) {
     fontSize: '0.9rem',
     boxSizing: 'border-box',
   }
-
   const errorFieldStyle = { ...fieldStyle, borderColor: '#dc2626' }
-
   const labelStyle = { display: 'block', fontWeight: 500, marginBottom: '4px', color: '#374151' }
-
   const fieldErrorStyle = { color: '#dc2626', fontSize: '0.8rem', marginTop: '4px' }
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+        <p>Loading policy...</p>
+      </div>
+    )
+  }
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
@@ -128,13 +124,13 @@ function PolicyCreate({ onBack, onCreated }) {
         onClick={onBack}
         style={{ marginBottom: '16px', cursor: 'pointer', background: 'none', border: 'none', color: '#3b82f6', fontSize: '0.95rem' }}
       >
-        ← Back to Policies
+        ← Back
       </button>
-      <h2>Create Policy</h2>
+      <h2>Edit Policy {originalPolicy?.policyNumber}</h2>
 
       {success && (
         <div style={{ padding: '12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#16a34a', marginBottom: '16px' }}>
-          Policy created successfully!
+          Policy updated successfully!
         </div>
       )}
 
@@ -145,41 +141,14 @@ function PolicyCreate({ onBack, onCreated }) {
       )}
 
       <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '16px' }}>
-          <label style={labelStyle}>Policyholder ID *</label>
-          <input
-            type="text"
-            name="policyholderId"
-            value={formData.policyholderId}
-            onChange={handleChange}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            style={errors.policyholderId ? errorFieldStyle : fieldStyle}
-          />
-          {errors.policyholderId && <div style={fieldErrorStyle}>{errors.policyholderId}</div>}
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label style={labelStyle}>Policy Type ID *</label>
-          <input
-            type="text"
-            name="policyTypeId"
-            value={formData.policyTypeId}
-            onChange={handleChange}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            style={errors.policyTypeId ? errorFieldStyle : fieldStyle}
-          />
-          {errors.policyTypeId && <div style={fieldErrorStyle}>{errors.policyTypeId}</div>}
-        </div>
-
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Coverage Limit *</label>
+            <label style={labelStyle}>Coverage Limit</label>
             <input
               type="number"
               name="coverageLimit"
               value={formData.coverageLimit}
               onChange={handleChange}
-              placeholder="50000"
               min="0"
               step="0.01"
               style={errors.coverageLimit ? errorFieldStyle : fieldStyle}
@@ -193,7 +162,6 @@ function PolicyCreate({ onBack, onCreated }) {
               name="deductible"
               value={formData.deductible}
               onChange={handleChange}
-              placeholder="1000"
               min="0"
               step="0.01"
               style={errors.deductible ? errorFieldStyle : fieldStyle}
@@ -202,29 +170,31 @@ function PolicyCreate({ onBack, onCreated }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Start Date *</label>
-            <input
-              type="date"
-              name="startDate"
-              value={formData.startDate}
-              onChange={handleChange}
-              style={errors.startDate ? errorFieldStyle : fieldStyle}
-            />
-            {errors.startDate && <div style={fieldErrorStyle}>{errors.startDate}</div>}
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Expiry Date *</label>
-            <input
-              type="date"
-              name="expiryDate"
-              value={formData.expiryDate}
-              onChange={handleChange}
-              style={errors.expiryDate ? errorFieldStyle : fieldStyle}
-            />
-            {errors.expiryDate && <div style={fieldErrorStyle}>{errors.expiryDate}</div>}
-          </div>
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Expiry Date</label>
+          <input
+            type="date"
+            name="expiryDate"
+            value={formData.expiryDate}
+            onChange={handleChange}
+            style={fieldStyle}
+          />
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Status</label>
+          <select
+            name="status"
+            value={formData.status}
+            onChange={handleChange}
+            style={fieldStyle}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div style={{ marginBottom: '20px' }}>
@@ -234,7 +204,6 @@ function PolicyCreate({ onBack, onCreated }) {
             value={formData.exclusions}
             onChange={handleChange}
             rows={3}
-            placeholder="Any exclusions or limitations..."
             style={errors.exclusions ? errorFieldStyle : fieldStyle}
           />
           {errors.exclusions && <div style={fieldErrorStyle}>{errors.exclusions}</div>}
@@ -246,7 +215,7 @@ function PolicyCreate({ onBack, onCreated }) {
           style={{
             width: '100%',
             padding: '12px',
-            backgroundColor: submitting ? '#9ca3af' : '#3b82f6',
+            backgroundColor: submitting ? '#9ca3af' : '#f59e0b',
             color: '#fff',
             border: 'none',
             borderRadius: '6px',
@@ -255,11 +224,11 @@ function PolicyCreate({ onBack, onCreated }) {
             cursor: submitting ? 'not-allowed' : 'pointer',
           }}
         >
-          {submitting ? 'Creating...' : 'Create Policy'}
+          {submitting ? 'Updating...' : 'Update Policy'}
         </button>
       </form>
     </div>
   )
 }
 
-export default PolicyCreate
+export default PolicyEdit
