@@ -4,7 +4,12 @@ using Microsoft.Extensions.DependencyInjection;
 using InsuranceClaims.Infrastructure.Persistence;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
 using InsuranceClaims.Infrastructure.Services;
+using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Application.ClaimsManagement.Services;
 using InsuranceClaims.Infrastructure.Repositories;
+using InsuranceClaims.Infrastructure.ExternalServices;
+using InsuranceClaims.Application.RiskAssessment.Interfaces;
+using InsuranceClaims.Application.RiskAssessment.Services;
 using InsuranceClaims.Infrastructure.ExternalServices.Payments;
 using InsuranceClaims.Infrastructure.AgentIntegration;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
@@ -29,6 +34,37 @@ public static class DependencyInjection
         // Policy Management
         services.AddScoped<IPolicyService, PolicyService>();
 
+        // ── Claims Management ────────────────────────────────────────
+        // Repositories
+        services.AddScoped<IClaimRepository, ClaimRepository>();
+
+        // Application services
+        services.AddScoped<IClaimService, ClaimService>();
+
+        // External services
+        services.AddScoped<IDocumentStorageService, LocalFileStorageService>();
+        services.AddScoped<IPolicyValidationService, PolicyValidationService>();
+
+        // AI service HTTP client — Document Verification
+        services.AddHttpClient<IDocumentVerificationClient, DocumentVerificationClient>(client =>
+        {
+            var aiServiceUrl = configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
+            client.BaseAddress = new Uri(aiServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        // ── Risk Assessment ──────────────────────────────────────────
+        services.AddScoped<IRiskAssessmentRepository, RiskAssessmentRepository>();
+        services.AddScoped<IRiskAssessmentService, RiskAssessmentService>();
+
+        // Risk Assessment — AI Client (HttpClient)
+        services.AddHttpClient<IAiRiskClient, AiRiskClient>(client =>
+        {
+            var aiServiceUrl = configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
+            client.BaseAddress = new Uri(aiServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
         // ── Payout Processing ────────────────────────────────────────
         services.AddScoped<IPayoutRepository, PayoutRepository>();
         services.AddScoped<IPayoutService, PayoutService>();
@@ -38,7 +74,7 @@ public static class DependencyInjection
         // Agent integration: ASP.NET Core → Internal AI Service
         services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
 
-        // TODO: Register repositories, authentication services, external service clients
+        // TODO: Register repositories, authentication services, external service clients for other modules
 
         return services;
     }

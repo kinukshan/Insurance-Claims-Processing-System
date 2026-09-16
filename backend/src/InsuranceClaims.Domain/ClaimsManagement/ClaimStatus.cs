@@ -1,18 +1,20 @@
 namespace InsuranceClaims.Domain.ClaimsManagement;
 
 /// <summary>
-/// Status of an insurance claim.
+/// Status of an insurance claim throughout its lifecycle.
 /// </summary>
 public enum ClaimStatus
 {
-    Submitted = 0,
-    UnderReview = 1,
-    DocumentVerification = 2,
-    RiskAssessment = 3,
-    PendingApproval = 4,
-    Approved = 5,
-    Rejected = 6,
-    RevisionRequested = 7,
-    PayoutProcessing = 8,
-    Closed = 9
+    Draft = 0,
+    Submitted = 1,
+    UnderReview = 2,
+    DocumentVerification = 3,
+    AdditionalDocumentsRequired = 4,
+    RiskAssessment = 5,
+    PendingApproval = 6,
+    Approved = 7,
+    Rejected = 8,
+    Withdrawn = 9,
+    PayoutProcessing = 10,
+    Closed = 11
 }
