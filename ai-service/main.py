@@ -9,10 +9,18 @@ Architecture:
     Flutter -> ASP.NET Core -> AI Service
 """
 
+import logging
 from fastapi import FastAPI, HTTPException
-from schemas.claim_schema import DocumentVerificationRequest
+from schemas.claim_schema import ClaimData, DocumentVerificationRequest
 from schemas.document_result_schema import DocumentVerificationResult
+from schemas.risk_result_schema import RiskAssessmentResult
+from schemas.payout_result_schema import PayoutValidationRequest
 from agents.document_verification_agent import DocumentVerificationAgent
+from agents.fraud_risk_agent import FraudRiskAgent
+from agents.validation_agent import validation_agent
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Insurance Claims AI Service",
@@ -50,7 +58,48 @@ async def verify_documents(request: DocumentVerificationRequest):
         )
 
 
+@app.post("/api/fraud-risk/assess", response_model=RiskAssessmentResult)
+async def assess_fraud_risk(claim_data: ClaimData) -> RiskAssessmentResult:
+    """
+    Run the fraud/risk assessment agent on a claim.
+
+    Called by ASP.NET Core backend — never by React or Flutter directly.
+
+    Returns a structured risk assessment with:
+    - risk_score (0-100)
+    - flags (list of identified risk indicators)
+    - recommendation (proceed or escalate)
+    """
+    logger.info("Assessing fraud risk for claim %s", claim_data.claim_id)
+
+    try:
+        agent = FraudRiskAgent()
+        result = await agent.assess(claim_data)
+
+        logger.info(
+            "Assessment complete for claim %s: score=%.1f, flags=%d, recommendation=%s",
+            claim_data.claim_id,
+            result.risk_score,
+            len(result.flags),
+            result.recommendation.value,
+        )
+
+        return result
+    except Exception as exc:
+        logger.error(
+            "Unhandled error in fraud risk assessment for claim %s: %s",
+            claim_data.claim_id,
+            exc,
+            exc_info=True,
+        )
+        # Return a safe fallback instead of 500
+        return RiskAssessmentResult(
+            risk_score=50.0,
+            flags=[],
+            recommendation="escalate",
+        )
+
+
 # TODO: Add workflow endpoints once other agents are implemented
 # POST /api/workflows/claim-processing — Start a claim processing workflow
 # GET  /api/workflows/{workflow_id}/status — Get workflow status
-

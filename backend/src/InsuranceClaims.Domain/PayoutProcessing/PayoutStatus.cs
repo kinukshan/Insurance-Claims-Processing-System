@@ -1,7 +1,19 @@
 namespace InsuranceClaims.Domain.PayoutProcessing;
 
 /// <summary>
-/// Status of a payout.
+/// Single source of truth for payout lifecycle state.
+///
+/// State machine:
+///   Draft
+///     ↓
+///   PendingApproval
+///     ├──→ Rejected         [terminal]
+///     ├──→ RevisionRequested → Draft (after revision)
+///     └──→ Approved
+///            ↓
+///         Processing
+///           ├──→ Paid        [terminal]
+///           └──→ Failed      [terminal]
 /// </summary>
 public enum PayoutStatus
 {
@@ -10,6 +22,7 @@ public enum PayoutStatus
     Approved = 2,
     Rejected = 3,
     RevisionRequested = 4,
-    Processed = 5,
-    Failed = 6
+    Processing = 5,
+    Paid = 6,
+    Failed = 7
 }

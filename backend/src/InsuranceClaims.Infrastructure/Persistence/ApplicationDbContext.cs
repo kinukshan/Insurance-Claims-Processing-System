@@ -50,9 +50,18 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // Apply all entity configurations from the Infrastructure assembly
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
         // Claims Management configurations
         modelBuilder.ApplyConfiguration(new Configurations.ClaimConfiguration());
         modelBuilder.ApplyConfiguration(new Configurations.ClaimDocumentConfiguration());
+
+        // Payout Processing configurations (Kinukshan)
+        modelBuilder.ApplyConfiguration(new Configurations.PayoutConfiguration());
+        modelBuilder.ApplyConfiguration(new Configurations.PayoutApprovalConfiguration());
+
+        // TODO: Add other entity configurations during integration
     }
 
     public override int SaveChanges()

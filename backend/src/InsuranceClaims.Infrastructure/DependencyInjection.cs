@@ -6,6 +6,12 @@ using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Services;
 using InsuranceClaims.Infrastructure.Repositories;
 using InsuranceClaims.Infrastructure.ExternalServices;
+using InsuranceClaims.Application.RiskAssessment.Interfaces;
+using InsuranceClaims.Application.RiskAssessment.Services;
+using InsuranceClaims.Infrastructure.ExternalServices.Payments;
+using InsuranceClaims.Infrastructure.AgentIntegration;
+using InsuranceClaims.Application.PayoutProcessing.Interfaces;
+using InsuranceClaims.Application.PayoutProcessing.Services;
 
 namespace InsuranceClaims.Infrastructure;
 
@@ -23,6 +29,7 @@ public static class DependencyInjection
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection")));
 
+        // ── Claims Management ────────────────────────────────────────
         // Repositories
         services.AddScoped<IClaimRepository, ClaimRepository>();
 
@@ -33,7 +40,7 @@ public static class DependencyInjection
         services.AddScoped<IDocumentStorageService, LocalFileStorageService>();
         services.AddScoped<IPolicyValidationService, PolicyValidationService>();
 
-        // AI service HTTP client
+        // AI service HTTP client — Document Verification
         services.AddHttpClient<IDocumentVerificationClient, DocumentVerificationClient>(client =>
         {
             var aiServiceUrl = configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
@@ -41,7 +48,29 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
+        // ── Risk Assessment ──────────────────────────────────────────
+        services.AddScoped<IRiskAssessmentRepository, RiskAssessmentRepository>();
+        services.AddScoped<IRiskAssessmentService, RiskAssessmentService>();
+
+        // Risk Assessment — AI Client (HttpClient)
+        services.AddHttpClient<IAiRiskClient, AiRiskClient>(client =>
+        {
+            var aiServiceUrl = configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
+            client.BaseAddress = new Uri(aiServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        // ── Payout Processing ────────────────────────────────────────
+        services.AddScoped<IPayoutRepository, PayoutRepository>();
+        services.AddScoped<IPayoutService, PayoutService>();
+        services.AddScoped<IPayoutContextProvider, StubPayoutContextProvider>();
+        services.AddScoped<IPaymentGateway, SandboxPaymentGateway>();
+
+        // Agent integration: ASP.NET Core → Internal AI Service
+        services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
+
+        // TODO: Register repositories, authentication services, external service clients for other modules
+
         return services;
     }
 }
-

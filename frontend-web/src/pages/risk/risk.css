@@ -1,0 +1,445 @@
+/* ── Risk Assessment Styles ─────────────────────────────────── */
+/* Component C (Member 3) — Staff-facing risk assessment pages */
+
+/* ── Dashboard ───────────────────────────────────────────────── */
+.risk-dashboard {
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.risk-dashboard h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  color: #1e293b;
+}
+
+/* ── Summary Cards ───────────────────────────────────────────── */
+.risk-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.summary-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s;
+}
+
+.summary-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.summary-card .card-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
+
+.summary-card .card-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.summary-card.flagged .card-value { color: #dc2626; }
+.summary-card.open-cases .card-value { color: #ea580c; }
+.summary-card.avg-score .card-value { color: #2563eb; }
+
+/* ── Search Bar ──────────────────────────────────────────────── */
+.risk-search-bar {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  align-items: center;
+}
+
+.risk-search-bar input {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.risk-search-bar input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.risk-search-bar button {
+  padding: 0.6rem 1.25rem;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.risk-search-bar button:hover {
+  background: #2563eb;
+}
+
+/* ── Table ────────────────────────────────────────────────────── */
+.risk-table-wrapper {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.risk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.risk-table thead {
+  background: #f8fafc;
+}
+
+.risk-table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.risk-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.risk-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* ── Score Badge ──────────────────────────────────────────────── */
+.risk-score-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.risk-score-badge.low { background: #dcfce7; color: #166534; }
+.risk-score-badge.medium { background: #fef9c3; color: #854d0e; }
+.risk-score-badge.high { background: #fed7aa; color: #9a3412; }
+.risk-score-badge.critical { background: #fecaca; color: #991b1b; }
+
+/* ── Severity Badge ──────────────────────────────────────────── */
+.severity-badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.severity-badge.low { background: #e0f2fe; color: #075985; }
+.severity-badge.medium { background: #fef3c7; color: #92400e; }
+.severity-badge.high { background: #ffedd5; color: #9a3412; }
+.severity-badge.critical { background: #fee2e2; color: #991b1b; }
+
+/* ── Status Badge ────────────────────────────────────────────── */
+.status-badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-badge.open { background: #dbeafe; color: #1d4ed8; }
+.status-badge.under-investigation { background: #fef9c3; color: #854d0e; }
+.status-badge.resolved { background: #dcfce7; color: #166534; }
+.status-badge.dismissed { background: #f3f4f6; color: #6b7280; }
+
+/* ── Flags List ──────────────────────────────────────────────── */
+.fraud-flag-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.fraud-flag-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.fraud-flag-item:last-child {
+  border-bottom: none;
+}
+
+.flag-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.flag-icon.low { background: #e0f2fe; }
+.flag-icon.medium { background: #fef3c7; }
+.flag-icon.high { background: #ffedd5; }
+.flag-icon.critical { background: #fee2e2; }
+
+.flag-content {
+  flex: 1;
+}
+
+.flag-content .flag-type {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #1e293b;
+}
+
+.flag-content .flag-desc {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+}
+
+/* ── Detail Panel ────────────────────────────────────────────── */
+.risk-detail-panel {
+  padding: 1.5rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.risk-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.risk-detail-section {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.risk-detail-section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 0.75rem;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 2rem;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-item .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.detail-item .value {
+  font-size: 0.95rem;
+  color: #1e293b;
+  font-weight: 500;
+}
+
+/* ── Filter Bar ──────────────────────────────────────────────── */
+.filter-bar {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-bar select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+}
+
+/* ── Modal ────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.modal-content h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  color: #0f172a;
+}
+
+.modal-field {
+  margin-bottom: 1rem;
+}
+
+.modal-field label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 0.3rem;
+}
+
+.modal-field input,
+.modal-field select,
+.modal-field textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.modal-field textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+.btn {
+  padding: 0.55rem 1.25rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: #fff;
+}
+.btn-primary:hover { background: #2563eb; }
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+.btn-danger:hover { background: #dc2626; }
+
+.btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+}
+.btn-secondary:hover { background: #e2e8f0; }
+
+/* ── Empty / Loading / Error States ──────────────────────────── */
+.state-message {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #94a3b8;
+}
+
+.state-message.error {
+  color: #dc2626;
+}
+
+.state-message .icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.state-message p {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 3rem;
+}
+
+.spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 3px solid #e2e8f0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .risk-summary-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-table {
+    font-size: 0.8rem;
+  }
+}

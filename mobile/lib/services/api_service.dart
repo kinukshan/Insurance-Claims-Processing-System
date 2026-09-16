@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Base API service for communicating with ASP.NET Core Web API.
@@ -26,40 +27,64 @@ class ApiService {
 
   /// GET request.
   Future<dynamic> get(String endpoint) async {
-    final response = await _client.get(
-      Uri.parse('$baseUrl$endpoint'),
-      headers: _headers,
-    );
-    return _handleResponse(response);
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      debugPrint('API GET error: $e');
+      throw ApiException('Network error: $e', 0);
+    }
   }
 
   /// POST request with JSON body.
   Future<dynamic> post(String endpoint, {Map<String, dynamic>? body}) async {
-    final response = await _client.post(
-      Uri.parse('$baseUrl$endpoint'),
-      headers: _headers,
-      body: body != null ? jsonEncode(body) : null,
-    );
-    return _handleResponse(response);
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
+        body: body != null ? jsonEncode(body) : null,
+      ).timeout(const Duration(seconds: 30));
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      debugPrint('API POST error: $e');
+      throw ApiException('Network error: $e', 0);
+    }
   }
 
   /// PUT request with JSON body.
   Future<dynamic> put(String endpoint, {Map<String, dynamic>? body}) async {
-    final response = await _client.put(
-      Uri.parse('$baseUrl$endpoint'),
-      headers: _headers,
-      body: body != null ? jsonEncode(body) : null,
-    );
-    return _handleResponse(response);
+    try {
+      final response = await _client.put(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
+        body: body != null ? jsonEncode(body) : null,
+      ).timeout(const Duration(seconds: 30));
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      debugPrint('API PUT error: $e');
+      throw ApiException('Network error: $e', 0);
+    }
   }
 
   /// DELETE request.
   Future<dynamic> delete(String endpoint) async {
-    final response = await _client.delete(
-      Uri.parse('$baseUrl$endpoint'),
-      headers: _headers,
-    );
-    return _handleResponse(response);
+    try {
+      final response = await _client.delete(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      debugPrint('API DELETE error: $e');
+      throw ApiException('Network error: $e', 0);
+    }
   }
 
   /// Multipart file upload (for document evidence).
@@ -95,6 +120,8 @@ class ApiService {
       return jsonDecode(response.body);
     }
 
+    if (response.statusCode == 404) return null;
+
     // Parse error body
     String errorMessage;
     try {
@@ -107,6 +134,11 @@ class ApiService {
     }
 
     throw ApiException(errorMessage, response.statusCode);
+  }
+
+  /// Closes the underlying HTTP client.
+  void dispose() {
+    _client.close();
   }
 }
 
