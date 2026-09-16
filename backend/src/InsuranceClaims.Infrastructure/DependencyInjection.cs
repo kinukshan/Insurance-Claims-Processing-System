@@ -3,9 +3,16 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using InsuranceClaims.Infrastructure.Persistence;
 using InsuranceClaims.Infrastructure.Repositories;
+Jathusha
 using InsuranceClaims.Infrastructure.ExternalServices;
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
 using InsuranceClaims.Application.RiskAssessment.Services;
+
+using InsuranceClaims.Infrastructure.ExternalServices.Payments;
+using InsuranceClaims.Infrastructure.AgentIntegration;
+using InsuranceClaims.Application.PayoutProcessing.Interfaces;
+using InsuranceClaims.Application.PayoutProcessing.Services;
+main
 
 namespace InsuranceClaims.Infrastructure;
 
@@ -23,6 +30,7 @@ public static class DependencyInjection
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection")));
 
+Jathusha
         // Risk Assessment — Repository
         services.AddScoped<IRiskAssessmentRepository, RiskAssessmentRepository>();
 
@@ -38,6 +46,17 @@ public static class DependencyInjection
         });
 
         // TODO: Register repositories, authentication services, external service clients for other modules
+        // ── Payout Processing ────────────────────────────────────────
+        services.AddScoped<IPayoutRepository, PayoutRepository>();
+        services.AddScoped<IPayoutService, PayoutService>();
+        services.AddScoped<IPayoutContextProvider, StubPayoutContextProvider>();
+        services.AddScoped<IPaymentGateway, SandboxPaymentGateway>();
+
+        // Agent integration: ASP.NET Core → Internal AI Service
+        services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
+
+        // TODO: Register repositories, authentication services, external service clients
+      main
 
         return services;
     }

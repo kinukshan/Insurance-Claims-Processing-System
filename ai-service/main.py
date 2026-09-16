@@ -9,6 +9,7 @@ Architecture:
     Flutter -> ASP.NET Core -> AI Service
 """
 
+ Jathusha
 import logging
 from fastapi import FastAPI, HTTPException
 from schemas.claim_schema import ClaimData
@@ -17,6 +18,11 @@ from agents.fraud_risk_agent import FraudRiskAgent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+from fastapi import FastAPI, HTTPException
+
+from agents.validation_agent import validation_agent
+from schemas.payout_result_schema import PayoutValidationRequest
+main
 
 app = FastAPI(
     title="Insurance Claims AI Service",
