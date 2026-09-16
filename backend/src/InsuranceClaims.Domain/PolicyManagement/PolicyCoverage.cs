@@ -9,8 +9,20 @@ public class PolicyCoverage : BaseEntity
 {
     public Guid PolicyId { get; set; }
     public string CoverageType { get; set; } = string.Empty;
+    public string? Description { get; set; }
     public decimal CoverageLimit { get; set; }
     public decimal DeductibleAmount { get; set; }
 
-    // TODO: Add properties and navigation during implementation
+    /// <summary>
+    /// Percentage of the total coverage this item represents (0-100).
+    /// </summary>
+    public decimal PercentageOfCoverage { get; set; }
+
+    /// <summary>
+    /// Whether this coverage is currently active.
+    /// </summary>
+    public bool IsActive { get; set; } = true;
+
+    // Navigation properties
+    public Policy? Policy { get; set; }
 }

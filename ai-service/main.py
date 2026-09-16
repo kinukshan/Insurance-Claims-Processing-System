@@ -11,13 +11,17 @@ Architecture:
 
 import logging
 from fastapi import FastAPI, HTTPException
+
+from agents.coordinator_agent import CoordinatorAgent
+from agents.validation_agent import validation_agent
+from agents.document_verification_agent import DocumentVerificationAgent
+from agents.fraud_risk_agent import FraudRiskAgent
+from schemas.workflow_schema import WorkflowObjective, WorkflowPlan, WorkflowResult
 from schemas.claim_schema import ClaimData, DocumentVerificationRequest
 from schemas.document_result_schema import DocumentVerificationResult
 from schemas.risk_result_schema import RiskAssessmentResult
 from schemas.payout_result_schema import PayoutValidationRequest
-from agents.document_verification_agent import DocumentVerificationAgent
-from agents.fraud_risk_agent import FraudRiskAgent
-from agents.validation_agent import validation_agent
+from state.workflow_state import workflow_store
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,6 +33,7 @@ app = FastAPI(
 )
 
 # Initialize agents
+coordinator = CoordinatorAgent()
 _document_agent = DocumentVerificationAgent()
 
 
@@ -37,6 +42,66 @@ async def health_check():
     """Health check endpoint for container orchestration."""
     return {"status": "healthy", "service": "ai-service"}
 
+
+# ── Coordinator / Planning Agent (Kaushikesh) ────────────────────────
+
+@app.post("/api/workflows/claim-processing", response_model=WorkflowResult)
+async def start_claim_processing(objective: WorkflowObjective):
+    """
+    Start a claim processing workflow.
+    The coordinator agent creates a plan and executes the full pipeline.
+    """
+    try:
+        result = coordinator.execute_workflow(objective)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Workflow execution failed: {str(e)}"
+        )
+
+
+@app.get("/api/workflows/{workflow_id}/status")
+async def get_workflow_status(workflow_id: str):
+    """Get the current status of a workflow."""
+    status = coordinator.get_workflow_status(workflow_id)
+
+    if status is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow '{workflow_id}' not found."
+        )
+
+    return status
+
+
+# ── Validation / Safety Agent (Kinukshan) ────────────────────────────
+
+@app.post("/api/validate/payout")
+async def validate_payout(request: PayoutValidationRequest):
+    """
+    Validate a payout proposal via the Validation / Safety Agent.
+
+    Called internally by ASP.NET Core (IPayoutValidationAgentGateway).
+    Never called directly by React or Flutter.
+    """
+    try:
+        result = validation_agent.validate_payout_proposal(request)
+        return result.model_dump()
+    except Exception as e:
+        # Safe failure: return validation failure rather than 500
+        return {
+            "valid": False,
+            "violations": [f"AGENT_ERROR: {str(e)}"],
+            "requires_human_approval": True,
+            "agent_id": "validation-safety-agent-error",
+            "summary": "Validation agent encountered an error. Failing safely.",
+        }
+
+
+# ── Document Verification Agent (Arulkumaran) ───────────────────────
 
 @app.post("/api/agents/document-verification", response_model=DocumentVerificationResult)
 async def verify_documents(request: DocumentVerificationRequest):
@@ -57,6 +122,8 @@ async def verify_documents(request: DocumentVerificationRequest):
             warnings=[f"Agent error: {str(e)}"],
         )
 
+
+# ── Fraud / Risk Assessment Agent (Jathusha) ────────────────────────
 
 @app.post("/api/fraud-risk/assess", response_model=RiskAssessmentResult)
 async def assess_fraud_risk(claim_data: ClaimData) -> RiskAssessmentResult:
@@ -98,8 +165,3 @@ async def assess_fraud_risk(claim_data: ClaimData) -> RiskAssessmentResult:
             flags=[],
             recommendation="escalate",
         )
-
-
-# TODO: Add workflow endpoints once other agents are implemented
-# POST /api/workflows/claim-processing — Start a claim processing workflow
-# GET  /api/workflows/{workflow_id}/status — Get workflow status

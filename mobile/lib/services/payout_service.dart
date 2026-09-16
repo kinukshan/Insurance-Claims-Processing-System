@@ -6,18 +6,12 @@ import '../models/payout.dart';
 /// Policyholder-facing: read-only access to payout status and history.
 /// All API calls go through ASP.NET Core — never directly to the AI service.
 class PayoutService {
-  final String _baseUrl;
-
-  PayoutService({String? baseUrl})
-      : _baseUrl = baseUrl ?? const String.fromEnvironment(
-            'API_BASE_URL',
-            defaultValue: 'http://localhost:5000/api',
-          );
+  final ApiService _api = ApiService();
 
   /// Get payout for a specific claim.
   Future<Payout?> getPayoutByClaimId(String claimId) async {
     try {
-      final response = await ApiService.get('$_baseUrl/payouts/claim/$claimId');
+      final response = await _api.get('/payouts/claim/$claimId');
       if (response != null) {
         return Payout.fromJson(response as Map<String, dynamic>);
       }
@@ -31,7 +25,7 @@ class PayoutService {
   /// Get payout by its ID.
   Future<Payout?> getPayoutById(String id) async {
     try {
-      final response = await ApiService.get('$_baseUrl/payouts/$id');
+      final response = await _api.get('/payouts/$id');
       if (response != null) {
         return Payout.fromJson(response as Map<String, dynamic>);
       }
@@ -45,8 +39,8 @@ class PayoutService {
   /// Get paginated payout history.
   Future<List<Payout>> getPayoutHistory({int page = 1, int pageSize = 20}) async {
     try {
-      final response = await ApiService.get(
-        '$_baseUrl/payouts/history?page=$page&pageSize=$pageSize',
+      final response = await _api.get(
+        '/payouts/history?page=$page&pageSize=$pageSize',
       );
       if (response != null && response['items'] != null) {
         return (response['items'] as List)

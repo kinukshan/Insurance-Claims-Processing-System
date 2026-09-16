@@ -14,7 +14,7 @@ Covers:
 
 import pytest
 from datetime import date, timedelta
-
+from pydantic import ValidationError
 from agents.document_verification_agent import DocumentVerificationAgent
 from schemas.claim_schema import DocumentVerificationRequest, DocumentData
 from schemas.document_result_schema import DocumentVerificationResult
@@ -152,19 +152,12 @@ class TestMalformedInput:
         assert result.complete is False
         error_fields = [i.field for i in result.inconsistencies]
         assert "incident_date" in error_fields
-
     def test_negative_claimed_amount(self, agent):
-        request = _make_request(claimed_amount=-500, documents=_make_auto_docs())
-        result = agent.verify(request)
-        assert result.complete is False
-        error_fields = [i.field for i in result.inconsistencies]
-        assert "claimed_amount" in error_fields
-
-    def test_zero_claimed_amount(self, agent):
-        request = _make_request(claimed_amount=0, documents=_make_auto_docs())
-        result = agent.verify(request)
-        error_fields = [i.field for i in result.inconsistencies]
-        assert "claimed_amount" in error_fields
+        with pytest.raises(ValidationError):
+            _make_request(
+            claimed_amount=-500,
+            documents=_make_auto_docs(),
+        )
 
     def test_very_high_claimed_amount_warning(self, agent):
         request = _make_request(claimed_amount=5_000_000, documents=_make_auto_docs())

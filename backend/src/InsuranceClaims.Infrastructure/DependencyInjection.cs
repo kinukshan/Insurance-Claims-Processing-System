@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using InsuranceClaims.Infrastructure.Persistence;
+using InsuranceClaims.Application.PolicyManagement.Interfaces;
+using InsuranceClaims.Infrastructure.Services;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Services;
 using InsuranceClaims.Infrastructure.Repositories;
@@ -28,6 +30,9 @@ public static class DependencyInjection
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection")));
+
+        // Policy Management
+        services.AddScoped<IPolicyService, PolicyService>();
 
         // ── Claims Management ────────────────────────────────────────
         // Repositories

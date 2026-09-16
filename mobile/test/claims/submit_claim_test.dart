@@ -5,12 +5,10 @@ import 'package:insurance_claims_mobile/screens/claims/submit_claim_screen.dart'
 void main() {
   group('SubmitClaimScreen widget tests', () {
     testWidgets('renders all form fields', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: SubmitClaimScreen()),
-      );
+      await tester.pumpWidget(const MaterialApp(home: SubmitClaimScreen()));
 
-      // AppBar title
-      expect(find.text('Submit Claim'), findsOneWidget);
+      // AppBar title and submit button both display "Submit Claim"
+      expect(find.text('Submit Claim'), findsNWidgets(2));
 
       // Form labels
       expect(find.text('Policy ID'), findsOneWidget);
@@ -18,7 +16,10 @@ void main() {
       expect(find.text('Incident Date'), findsOneWidget);
       expect(find.text('Incident Location'), findsOneWidget);
       expect(find.text('Description'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, 'Claimed Amount (\$)'), findsOneWidget);
+      expect(
+        find.widgetWithText(TextFormField, 'Claimed Amount (\$)'),
+        findsOneWidget,
+      );
 
       // Evidence section
       expect(find.text('Evidence'), findsOneWidget);
@@ -28,9 +29,7 @@ void main() {
     });
 
     testWidgets('shows validation errors on empty submit', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: SubmitClaimScreen()),
-      );
+      await tester.pumpWidget(const MaterialApp(home: SubmitClaimScreen()));
 
       // Find and tap submit button
       final submitButton = find.widgetWithText(FilledButton, 'Submit Claim');
@@ -46,9 +45,7 @@ void main() {
     });
 
     testWidgets('shows claim type dropdown with all options', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: SubmitClaimScreen()),
-      );
+      await tester.pumpWidget(const MaterialApp(home: SubmitClaimScreen()));
 
       // Open dropdown
       await tester.tap(find.byType(DropdownButtonFormField<String>));
@@ -65,24 +62,30 @@ void main() {
       expect(find.text('Other'), findsWidgets);
     });
 
-    testWidgets('amount validation rejects non-positive values', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: SubmitClaimScreen()),
-      );
+    testWidgets('amount validation rejects non-positive values', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const MaterialApp(home: SubmitClaimScreen()));
 
       // Enter zero amount
-      final amountField = find.widgetWithText(TextFormField, 'Claimed Amount (\$)');
+      final amountField = find.widgetWithText(
+        TextFormField,
+        'Claimed Amount (\$)',
+      );
       await tester.enterText(amountField, '0');
 
       // Fill other required fields to isolate amount validation
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Policy ID'), 'test-policy',
+        find.widgetWithText(TextFormField, 'Policy ID'),
+        'test-policy',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Incident Location'), 'Test location',
+        find.widgetWithText(TextFormField, 'Incident Location'),
+        'Test location',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Description'), 'Test description',
+        find.widgetWithText(TextFormField, 'Description'),
+        'Test description',
       );
 
       // Submit
@@ -94,21 +97,16 @@ void main() {
       expect(find.text('Must be greater than zero'), findsOneWidget);
     });
 
-    testWidgets('empty evidence section shows placeholder text', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: SubmitClaimScreen()),
-      );
+    testWidgets('empty evidence section shows placeholder text', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const MaterialApp(home: SubmitClaimScreen()));
 
-      expect(
-        find.textContaining('No evidence attached'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('No evidence attached'), findsOneWidget);
     });
 
     testWidgets('add evidence button exists', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: SubmitClaimScreen()),
-      );
+      await tester.pumpWidget(const MaterialApp(home: SubmitClaimScreen()));
 
       expect(find.text('Add'), findsOneWidget);
       expect(find.byIcon(Icons.add_a_photo), findsOneWidget);

@@ -57,11 +57,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new Configurations.ClaimConfiguration());
         modelBuilder.ApplyConfiguration(new Configurations.ClaimDocumentConfiguration());
 
+
         // Payout Processing configurations (Kinukshan)
         modelBuilder.ApplyConfiguration(new Configurations.PayoutConfiguration());
         modelBuilder.ApplyConfiguration(new Configurations.PayoutApprovalConfiguration());
-
-        // TODO: Add other entity configurations during integration
     }
 
     public override int SaveChanges()
