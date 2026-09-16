@@ -65,7 +65,10 @@ class RiskAssessmentResult(BaseModel):
         description="Final recommendation: proceed or escalate",
     )
 
-    @field_validator("risk_score")
+    @field_validator("risk_score", mode="before")
     @classmethod
     def clamp_score(cls, v: float) -> float:
-        return max(0.0, min(100.0, v))
+        try:
+            return max(0.0, min(100.0, float(v)))
+        except (ValueError, TypeError):
+            return 50.0

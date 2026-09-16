@@ -246,7 +246,7 @@ describe('FlaggedClaims', () => {
       expect(document.querySelector('#flagged-claims-table')).toBeInTheDocument()
     })
 
-    const escalateButtons = screen.getAllByText('Escalate')
+    const escalateButtons = screen.getAllByRole('button', { name: 'Escalate' })
     expect(escalateButtons.length).toBe(2) // both have hasFraudCase: false
   })
 

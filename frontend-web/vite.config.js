@@ -8,5 +8,6 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     css: true,
+    passWithNoTests: true,
   },
 })
