@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "node test-runner.js"
   },
   "dependencies": {
     "react": "^19.2.8",
