@@ -50,7 +50,8 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // TODO: Add entity configurations during implementation
+        // Apply all entity configurations from this assembly
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
     }
 
     public override int SaveChanges()
