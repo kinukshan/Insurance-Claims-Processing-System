@@ -1,9 +1,8 @@
 using InsuranceClaims.Application.RiskAssessment.DTOs;
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
+using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.RiskAssessment;
 using InsuranceClaims.Domain.RiskAssessment.Enums;
-using InsuranceClaims.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace InsuranceClaims.Application.RiskAssessment.Services;
 
@@ -16,7 +15,6 @@ public class RiskAssessmentService : IRiskAssessmentService
 {
     private readonly IRiskAssessmentRepository _repository;
     private readonly IAiRiskClient _aiClient;
-    private readonly ApplicationDbContext _dbContext;
 
     // ── Risk thresholds ──────────────────────────────────────────
     private const decimal LowThreshold = 30m;
@@ -27,19 +25,17 @@ public class RiskAssessmentService : IRiskAssessmentService
 
     public RiskAssessmentService(
         IRiskAssessmentRepository repository,
-        IAiRiskClient aiClient,
-        ApplicationDbContext dbContext)
+        IAiRiskClient aiClient)
     {
         _repository = repository;
         _aiClient = aiClient;
-        _dbContext = dbContext;
     }
 
     /// <inheritdoc />
     public async Task<RiskAssessmentDto> AssessClaimAsync(Guid claimId, AssessClaimRequest request)
     {
         // 1. Retrieve the claim
-        var claim = await _dbContext.Claims.FirstOrDefaultAsync(c => c.Id == claimId)
+        var claim = await _repository.GetClaimByIdAsync(claimId)
             ?? throw new KeyNotFoundException($"Claim {claimId} not found.");
 
         // 2. Run deterministic rules
@@ -57,12 +53,8 @@ public class RiskAssessmentService : IRiskAssessmentService
         }
 
         // Rule: Duplicate claim detection
-        var duplicates = await _dbContext.Claims
-            .Where(c => c.Id != claimId
-                && c.PolicyHolderId == claim.PolicyHolderId
-                && c.Description == claim.Description
-                && c.IncidentDate == claim.IncidentDate)
-            .AnyAsync();
+        var duplicates = await _repository.HasDuplicateClaimAsync(
+            claimId, claim.PolicyHolderId, claim.Description, claim.IncidentDate);
 
         if (duplicates)
         {
@@ -74,10 +66,7 @@ public class RiskAssessmentService : IRiskAssessmentService
         }
 
         // Rule: Frequent claims — check claims in last 12 months
-        var recentClaimCount = await _dbContext.Claims
-            .Where(c => c.PolicyHolderId == claim.PolicyHolderId
-                && c.CreatedAt >= DateTime.UtcNow.AddMonths(-12))
-            .CountAsync();
+        var recentClaimCount = await _repository.GetRecentClaimCountAsync(claim.PolicyHolderId, 12);
 
         if (recentClaimCount > 3)
         {
@@ -229,7 +218,7 @@ public class RiskAssessmentService : IRiskAssessmentService
         }
 
         // Retrieve the claim for PolicyHolderId
-        var claim = await _dbContext.Claims.FirstOrDefaultAsync(c => c.Id == assessment.ClaimId)
+        var claim = await _repository.GetClaimByIdAsync(assessment.ClaimId)
             ?? throw new KeyNotFoundException($"Claim {assessment.ClaimId} not found.");
 
         var fraudCase = new FraudCase

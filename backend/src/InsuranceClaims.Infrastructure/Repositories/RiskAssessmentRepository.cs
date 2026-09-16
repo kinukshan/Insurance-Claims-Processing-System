@@ -1,4 +1,5 @@
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
+using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.RiskAssessment;
 using InsuranceClaims.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,30 @@ public class RiskAssessmentRepository : IRiskAssessmentRepository
     public RiskAssessmentRepository(ApplicationDbContext dbContext)
     {
         _dbContext = dbContext;
+    }
+
+    /// <inheritdoc />
+    public async Task<Claim?> GetClaimByIdAsync(Guid claimId)
+    {
+        return await _dbContext.Claims.FirstOrDefaultAsync(c => c.Id == claimId);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> HasDuplicateClaimAsync(Guid claimId, Guid policyHolderId, string description, DateTime incidentDate)
+    {
+        return await _dbContext.Claims
+            .AnyAsync(c => c.Id != claimId
+                && c.PolicyHolderId == policyHolderId
+                && c.Description == description
+                && c.IncidentDate == incidentDate);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> GetRecentClaimCountAsync(Guid policyHolderId, int months)
+    {
+        var cutoff = DateTime.UtcNow.AddMonths(-months);
+        return await _dbContext.Claims
+            .CountAsync(c => c.PolicyHolderId == policyHolderId && c.CreatedAt >= cutoff);
     }
 
     /// <inheritdoc />

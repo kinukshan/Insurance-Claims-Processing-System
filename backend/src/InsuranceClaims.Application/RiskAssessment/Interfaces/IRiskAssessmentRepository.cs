@@ -1,3 +1,4 @@
+using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.RiskAssessment;
 
 namespace InsuranceClaims.Application.RiskAssessment.Interfaces;
@@ -7,6 +8,15 @@ namespace InsuranceClaims.Application.RiskAssessment.Interfaces;
 /// </summary>
 public interface IRiskAssessmentRepository
 {
+    /// <summary>Get a claim by its ID.</summary>
+    Task<Claim?> GetClaimByIdAsync(Guid claimId);
+
+    /// <summary>Check if another claim exists with matching description and incident date for the policyholder.</summary>
+    Task<bool> HasDuplicateClaimAsync(Guid claimId, Guid policyHolderId, string description, DateTime incidentDate);
+
+    /// <summary>Count claims submitted by the policyholder within the specified number of months.</summary>
+    Task<int> GetRecentClaimCountAsync(Guid policyHolderId, int months);
+
     /// <summary>Get a risk assessment by its ID, including flags and fraud case.</summary>
     Task<Domain.RiskAssessment.RiskAssessment?> GetByIdAsync(Guid id);
 
