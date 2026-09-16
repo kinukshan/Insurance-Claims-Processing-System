@@ -50,7 +50,11 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // TODO: Add entity configurations during implementation
+        // Payout Processing configurations (Kinukshan)
+        modelBuilder.ApplyConfiguration(new Configurations.PayoutConfiguration());
+        modelBuilder.ApplyConfiguration(new Configurations.PayoutApprovalConfiguration());
+
+        // TODO: Add other entity configurations during integration
     }
 
     public override int SaveChanges()
