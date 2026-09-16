@@ -9,10 +9,20 @@ Architecture:
     Flutter -> ASP.NET Core -> AI Service
 """
 
+ Jathusha
+import logging
+from fastapi import FastAPI, HTTPException
+from schemas.claim_schema import ClaimData
+from schemas.risk_result_schema import RiskAssessmentResult
+from agents.fraud_risk_agent import FraudRiskAgent
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 from fastapi import FastAPI, HTTPException
 
 from agents.validation_agent import validation_agent
 from schemas.payout_result_schema import PayoutValidationRequest
+main
 
 app = FastAPI(
     title="Insurance Claims AI Service",
@@ -27,28 +37,48 @@ async def health_check():
     return {"status": "healthy", "service": "ai-service"}
 
 
-@app.post("/api/validate/payout")
-async def validate_payout(request: PayoutValidationRequest):
+@app.post("/api/fraud-risk/assess", response_model=RiskAssessmentResult)
+async def assess_fraud_risk(claim_data: ClaimData) -> RiskAssessmentResult:
     """
-    Validate a payout proposal via the Validation / Safety Agent.
+    Run the fraud/risk assessment agent on a claim.
 
-    Called internally by ASP.NET Core (IPayoutValidationAgentGateway).
-    Never called directly by React or Flutter.
+    Called by ASP.NET Core backend — never by React or Flutter directly.
+
+    Returns a structured risk assessment with:
+    - risk_score (0-100)
+    - flags (list of identified risk indicators)
+    - recommendation (proceed or escalate)
     """
+    logger.info("Assessing fraud risk for claim %s", claim_data.claim_id)
+
     try:
-        result = validation_agent.validate_payout_proposal(request)
-        return result.model_dump()
-    except Exception as e:
-        # Safe failure: return validation failure rather than 500
-        return {
-            "valid": False,
-            "violations": [f"AGENT_ERROR: {str(e)}"],
-            "requires_human_approval": True,
-            "agent_id": "validation-safety-agent-error",
-            "summary": "Validation agent encountered an error. Failing safely.",
-        }
+        agent = FraudRiskAgent()
+        result = await agent.assess(claim_data)
+
+        logger.info(
+            "Assessment complete for claim %s: score=%.1f, flags=%d, recommendation=%s",
+            claim_data.claim_id,
+            result.risk_score,
+            len(result.flags),
+            result.recommendation.value,
+        )
+
+        return result
+    except Exception as exc:
+        logger.error(
+            "Unhandled error in fraud risk assessment for claim %s: %s",
+            claim_data.claim_id,
+            exc,
+            exc_info=True,
+        )
+        # Return a safe fallback instead of 500
+        return RiskAssessmentResult(
+            risk_score=50.0,
+            flags=[],
+            recommendation="escalate",
+        )
 
 
-# TODO: Add workflow endpoints once agents are implemented
+# TODO: Add workflow endpoints once other agents are implemented
 # POST /api/workflows/claim-processing — Start a claim processing workflow
 # GET  /api/workflows/{workflow_id}/status — Get workflow status

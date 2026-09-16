@@ -50,6 +50,8 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // Apply all entity configurations from the Infrastructure assembly
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
         // Payout Processing configurations (Kinukshan)
         modelBuilder.ApplyConfiguration(new Configurations.PayoutConfiguration());
         modelBuilder.ApplyConfiguration(new Configurations.PayoutApprovalConfiguration());
