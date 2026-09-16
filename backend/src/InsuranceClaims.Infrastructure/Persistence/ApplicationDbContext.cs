@@ -52,6 +52,10 @@ public class ApplicationDbContext : DbContext
 
         // Apply all entity configurations from this assembly
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
+        // Payout Processing configurations (Kinukshan)
+        modelBuilder.ApplyConfiguration(new Configurations.PayoutConfiguration());
+        modelBuilder.ApplyConfiguration(new Configurations.PayoutApprovalConfiguration());
     }
 
     public override int SaveChanges()

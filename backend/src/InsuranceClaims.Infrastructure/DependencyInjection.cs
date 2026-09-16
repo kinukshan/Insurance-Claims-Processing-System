@@ -4,6 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using InsuranceClaims.Infrastructure.Persistence;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
 using InsuranceClaims.Infrastructure.Services;
+using InsuranceClaims.Infrastructure.Repositories;
+using InsuranceClaims.Infrastructure.ExternalServices.Payments;
+using InsuranceClaims.Infrastructure.AgentIntegration;
+using InsuranceClaims.Application.PayoutProcessing.Interfaces;
+using InsuranceClaims.Application.PayoutProcessing.Services;
 
 namespace InsuranceClaims.Infrastructure;
 
@@ -23,6 +28,15 @@ public static class DependencyInjection
 
         // Policy Management
         services.AddScoped<IPolicyService, PolicyService>();
+
+        // ── Payout Processing ────────────────────────────────────────
+        services.AddScoped<IPayoutRepository, PayoutRepository>();
+        services.AddScoped<IPayoutService, PayoutService>();
+        services.AddScoped<IPayoutContextProvider, StubPayoutContextProvider>();
+        services.AddScoped<IPaymentGateway, SandboxPaymentGateway>();
+
+        // Agent integration: ASP.NET Core → Internal AI Service
+        services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
 
         // TODO: Register repositories, authentication services, external service clients
 
