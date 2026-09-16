@@ -48,7 +48,7 @@ public class RiskAssessmentServiceTests : IDisposable
             Id = Guid.NewGuid(),
             PolicyHolderId = Guid.NewGuid(),
             Description = description,
-            ClaimAmount = amount,
+            ClaimedAmount = amount,
             IncidentDate = incidentDate ?? DateTime.UtcNow.AddDays(-5),
             IncidentLocation = location,
             Status = ClaimStatus.Submitted
@@ -134,7 +134,7 @@ public class RiskAssessmentServiceTests : IDisposable
             Id = Guid.NewGuid(),
             PolicyHolderId = firstClaim.PolicyHolderId,
             Description = "Water damage in kitchen",
-            ClaimAmount = 10000m,
+            ClaimedAmount = 10000m,
             IncidentDate = new DateTime(2026, 6, 15),
             IncidentLocation = "Jaffna",
             Status = ClaimStatus.Submitted
@@ -169,7 +169,7 @@ public class RiskAssessmentServiceTests : IDisposable
                 Id = Guid.NewGuid(),
                 PolicyHolderId = claim.PolicyHolderId,
                 Description = $"Past claim {i}",
-                ClaimAmount = 5000m,
+                ClaimedAmount = 5000m,
                 IncidentDate = DateTime.UtcNow.AddMonths(-i),
                 IncidentLocation = "Colombo",
                 Status = ClaimStatus.Approved
@@ -203,7 +203,7 @@ public class RiskAssessmentServiceTests : IDisposable
             Id = Guid.NewGuid(),
             PolicyHolderId = claim.PolicyHolderId,
             Description = "Total loss fire",
-            ClaimAmount = 200000m,
+            ClaimedAmount = 200000m,
             IncidentDate = new DateTime(2026, 8, 1),
             IncidentLocation = "Colombo",
             Status = ClaimStatus.Submitted
@@ -216,7 +216,7 @@ public class RiskAssessmentServiceTests : IDisposable
                 Id = Guid.NewGuid(),
                 PolicyHolderId = claim.PolicyHolderId,
                 Description = $"Past claim {i}",
-                ClaimAmount = 3000m,
+                ClaimedAmount = 3000m,
                 IncidentDate = DateTime.UtcNow.AddMonths(-i - 1),
                 IncidentLocation = "Colombo",
                 Status = ClaimStatus.Approved
@@ -400,7 +400,7 @@ public class RiskAssessmentServiceTests : IDisposable
                 Id = Guid.NewGuid(),
                 PolicyHolderId = claim.PolicyHolderId,
                 Description = $"Claim {i}",
-                ClaimAmount = 3000m,
+                ClaimedAmount = 3000m,
                 IncidentDate = DateTime.UtcNow.AddMonths(-i - 1),
                 IncidentLocation = "Location",
                 Status = ClaimStatus.Approved
@@ -446,6 +446,38 @@ public class RiskAssessmentServiceTests : IDisposable
         Assert.Equal(FraudCaseStatus.Resolved, updated.Status);
         Assert.Equal("Claim verified as legitimate", updated.Resolution);
         Assert.NotNull(updated.ClosedAt);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // Test 15 — Canonical ClaimedAmount property is correctly evaluated and passed to AI
+    // ══════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task AssessClaim_CanonicalClaimedAmount_EvaluatesRulesAndPassesToAi()
+    {
+        const decimal claimedAmount = 65000m;
+        var claim = await SeedClaim(amount: claimedAmount);
+
+        _aiClient.ConfiguredResult = new AiRiskResult
+        {
+            RiskScore = 40m,
+            Flags = new List<AiRiskFlag>(),
+            Recommendation = "proceed"
+        };
+
+        var result = await _service.AssessClaimAsync(claim.Id, new AssessClaimRequest
+        {
+            IncludeAiAnalysis = true
+        });
+
+        // 1. High amount flag created based on ClaimedAmount
+        var flags = await _service.GetFlagsAsync(claim.Id);
+        var highAmountFlag = Assert.Single(flags, f => f.FlagType == FraudFlagType.HighAmount);
+        Assert.Contains("$65,000.00", highAmountFlag.Description);
+
+        // 2. ClaimedAmount correctly forwarded to AI client
+        Assert.NotNull(_aiClient.LastRequest);
+        Assert.Equal(claimedAmount, _aiClient.LastRequest.ClaimAmount);
     }
 }
 
@@ -547,9 +579,11 @@ internal class StubAiRiskClient : IAiRiskClient
 {
     /// <summary>Set this before calling the service. Null simulates AI service failure.</summary>
     public AiRiskResult? ConfiguredResult { get; set; }
+    public AiRiskRequest? LastRequest { get; private set; }
 
     public Task<AiRiskResult?> AnalyzeClaimAsync(AiRiskRequest request)
     {
+        LastRequest = request;
         return Task.FromResult(ConfiguredResult);
     }
 }

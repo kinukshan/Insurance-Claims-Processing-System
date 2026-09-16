@@ -43,11 +43,11 @@ public class RiskAssessmentService : IRiskAssessmentService
         decimal ruleScore = 0m;
 
         // Rule: High claim amount
-        if (claim.ClaimAmount > HighAmountThreshold)
+        if (claim.ClaimedAmount > HighAmountThreshold)
         {
             ruleFlags.Add(CreateFlag(claimId, FraudFlagType.HighAmount,
-                $"Claim amount ${claim.ClaimAmount:N2} exceeds threshold of ${HighAmountThreshold:N2}.",
-                claim.ClaimAmount > HighAmountThreshold * 2 ? FlagSeverity.Critical : FlagSeverity.High,
+                $"Claim amount ${claim.ClaimedAmount:N2} exceeds threshold of ${HighAmountThreshold:N2}.",
+                claim.ClaimedAmount > HighAmountThreshold * 2 ? FlagSeverity.Critical : FlagSeverity.High,
                 FlagSource.Rule));
             ruleScore += 25m;
         }
@@ -98,7 +98,7 @@ public class RiskAssessmentService : IRiskAssessmentService
             {
                 ClaimId = claimId,
                 PolicyHolderId = claim.PolicyHolderId,
-                ClaimAmount = claim.ClaimAmount,
+                ClaimAmount = claim.ClaimedAmount,
                 Description = claim.Description,
                 IncidentDate = claim.IncidentDate,
                 IncidentLocation = claim.IncidentLocation
