@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using InsuranceClaims.Infrastructure.Persistence;
+using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Application.ClaimsManagement.Services;
 using InsuranceClaims.Infrastructure.Repositories;
 using InsuranceClaims.Infrastructure.ExternalServices;
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
@@ -27,10 +29,27 @@ public static class DependencyInjection
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection")));
 
-        // Risk Assessment — Repository
-        services.AddScoped<IRiskAssessmentRepository, RiskAssessmentRepository>();
+        // ── Claims Management ────────────────────────────────────────
+        // Repositories
+        services.AddScoped<IClaimRepository, ClaimRepository>();
 
-        // Risk Assessment — Application Service
+        // Application services
+        services.AddScoped<IClaimService, ClaimService>();
+
+        // External services
+        services.AddScoped<IDocumentStorageService, LocalFileStorageService>();
+        services.AddScoped<IPolicyValidationService, PolicyValidationService>();
+
+        // AI service HTTP client — Document Verification
+        services.AddHttpClient<IDocumentVerificationClient, DocumentVerificationClient>(client =>
+        {
+            var aiServiceUrl = configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
+            client.BaseAddress = new Uri(aiServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        // ── Risk Assessment ──────────────────────────────────────────
+        services.AddScoped<IRiskAssessmentRepository, RiskAssessmentRepository>();
         services.AddScoped<IRiskAssessmentService, RiskAssessmentService>();
 
         // Risk Assessment — AI Client (HttpClient)

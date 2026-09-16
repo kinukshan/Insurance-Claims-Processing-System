@@ -9,20 +9,18 @@ Architecture:
     Flutter -> ASP.NET Core -> AI Service
 """
 
- Jathusha
 import logging
 from fastapi import FastAPI, HTTPException
-from schemas.claim_schema import ClaimData
+from schemas.claim_schema import ClaimData, DocumentVerificationRequest
+from schemas.document_result_schema import DocumentVerificationResult
 from schemas.risk_result_schema import RiskAssessmentResult
+from schemas.payout_result_schema import PayoutValidationRequest
+from agents.document_verification_agent import DocumentVerificationAgent
 from agents.fraud_risk_agent import FraudRiskAgent
+from agents.validation_agent import validation_agent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-from fastapi import FastAPI, HTTPException
-
-from agents.validation_agent import validation_agent
-from schemas.payout_result_schema import PayoutValidationRequest
-main
 
 app = FastAPI(
     title="Insurance Claims AI Service",
@@ -30,11 +28,34 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Initialize agents
+_document_agent = DocumentVerificationAgent()
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint for container orchestration."""
     return {"status": "healthy", "service": "ai-service"}
+
+
+@app.post("/api/agents/document-verification", response_model=DocumentVerificationResult)
+async def verify_documents(request: DocumentVerificationRequest):
+    """
+    Document Verification Agent endpoint.
+    Checks submitted documents against required checklists and
+    identifies missing items and inconsistencies.
+    """
+    try:
+        result = _document_agent.verify(request)
+        return result
+    except Exception as e:
+        # Safe failure — return structured error, never crash the service
+        return DocumentVerificationResult(
+            complete=False,
+            missing_items=[],
+            inconsistencies=[],
+            warnings=[f"Agent error: {str(e)}"],
+        )
 
 
 @app.post("/api/fraud-risk/assess", response_model=RiskAssessmentResult)

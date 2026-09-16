@@ -1,4 +1,5 @@
 using InsuranceClaims.Infrastructure;
+using InsuranceClaims.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,10 +8,19 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// CORS for React dev server
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+
 // Register infrastructure services (DbContext, repositories, etc.)
 builder.Services.AddInfrastructure(builder.Configuration);
-
-// TODO: Register application services
 
 var app = builder.Build();
 
@@ -23,9 +33,18 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// TODO: Add ExceptionMiddleware
+// CORS
+app.UseCors("AllowFrontend");
+
+// Exception handling middleware
+app.UseMiddleware<ExceptionMiddleware>();
+
+// Serve uploaded files
+app.UseStaticFiles();
+
 // TODO: Add Authentication & Authorization middleware
 
 app.MapControllers();
 
 app.Run();
+

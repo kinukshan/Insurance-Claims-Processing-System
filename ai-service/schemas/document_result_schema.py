@@ -1,3 +1,22 @@
 """Schema definitions for document verification results."""
 
-# TODO: Define document result schema using Pydantic models
+from pydantic import BaseModel, Field
+
+
+class DocumentInconsistency(BaseModel):
+    """Represents a single inconsistency found during document verification."""
+
+    field: str = Field(..., description="The field or area with the inconsistency")
+    description: str = Field(..., description="Description of the inconsistency")
+    severity: str = Field("warning", description="Severity level: info, warning, error")
+
+
+class DocumentVerificationResult(BaseModel):
+    """Structured output from the Document Verification Agent."""
+
+    complete: bool = Field(..., description="Whether all required documents are present")
+    missing_items: list[str] = Field(default_factory=list, description="List of missing required document types")
+    inconsistencies: list[DocumentInconsistency] = Field(
+        default_factory=list, description="List of detected inconsistencies"
+    )
+    warnings: list[str] = Field(default_factory=list, description="General warnings or notes")

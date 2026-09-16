@@ -1,45 +1,38 @@
-Jathusha
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter/foundation.dart';
- main
 
 /// Base API service for communicating with ASP.NET Core Web API.
 ///
 /// All API calls go through ASP.NET Core — never directly to the AI service.
 class ApiService {
-Jathusha
-  static const String _defaultBaseUrl = 'http://10.0.2.2:5000/api';
+  /// Default base URL pointing to the ASP.NET Core backend.
+  static const String defaultBaseUrl = 'http://10.0.2.2:5000/api';
+
+  /// Dev-mode user ID for testing without JWT auth.
+  static const String devUserId = '00000000-0000-0000-0000-000000000001';
 
   final String baseUrl;
   final http.Client _client;
 
   ApiService({String? baseUrl, http.Client? client})
-      : baseUrl = baseUrl ?? const String.fromEnvironment(
-            'API_BASE_URL',
-            defaultValue: _defaultBaseUrl,
-          ),
+      : baseUrl = baseUrl ?? defaultBaseUrl,
         _client = client ?? http.Client();
 
-  /// Performs a GET request and returns the decoded JSON.
-  Future<dynamic> get(String path) async {
+  /// Default headers for all requests.
+  Map<String, String> get _headers => {
+        'Content-Type': 'application/json',
+        'X-User-Id': devUserId,
+      };
+
+  /// GET request.
+  Future<dynamic> get(String endpoint) async {
     try {
       final response = await _client.get(
-        Uri.parse('$baseUrl$path'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
       ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else if (response.statusCode == 404) {
-        return null;
-      } else {
-        throw ApiException(
-          'Request failed with status ${response.statusCode}',
-          response.statusCode,
-        );
-      }
+      return _handleResponse(response);
     } catch (e) {
       if (e is ApiException) rethrow;
       debugPrint('API GET error: $e');
@@ -47,23 +40,15 @@ Jathusha
     }
   }
 
-  /// Performs a POST request and returns the decoded JSON.
-  Future<dynamic> post(String path, Map<String, dynamic> body) async {
+  /// POST request with JSON body.
+  Future<dynamic> post(String endpoint, {Map<String, dynamic>? body}) async {
     try {
       final response = await _client.post(
-        Uri.parse('$baseUrl$path'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
+        body: body != null ? jsonEncode(body) : null,
       ).timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return jsonDecode(response.body);
-      } else {
-        throw ApiException(
-          'Request failed with status ${response.statusCode}',
-          response.statusCode,
-        );
-      }
+      return _handleResponse(response);
     } catch (e) {
       if (e is ApiException) rethrow;
       debugPrint('API POST error: $e');
@@ -71,6 +56,87 @@ Jathusha
     }
   }
 
+  /// PUT request with JSON body.
+  Future<dynamic> put(String endpoint, {Map<String, dynamic>? body}) async {
+    try {
+      final response = await _client.put(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
+        body: body != null ? jsonEncode(body) : null,
+      ).timeout(const Duration(seconds: 30));
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      debugPrint('API PUT error: $e');
+      throw ApiException('Network error: $e', 0);
+    }
+  }
+
+  /// DELETE request.
+  Future<dynamic> delete(String endpoint) async {
+    try {
+      final response = await _client.delete(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      debugPrint('API DELETE error: $e');
+      throw ApiException('Network error: $e', 0);
+    }
+  }
+
+  /// Multipart file upload (for document evidence).
+  Future<dynamic> uploadFile(
+    String endpoint, {
+    required String filePath,
+    required String fieldName,
+    Map<String, String>? fields,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl$endpoint'),
+    );
+    request.headers['X-User-Id'] = devUserId;
+
+    if (fields != null) {
+      request.fields.addAll(fields);
+    }
+
+    request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+    return _handleResponse(response);
+  }
+
+  /// Process the HTTP response and handle errors.
+  dynamic _handleResponse(http.Response response) {
+    if (response.statusCode == 204) return null;
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.body.isEmpty) return null;
+      return jsonDecode(response.body);
+    }
+
+    if (response.statusCode == 404) return null;
+
+    // Parse error body
+    String errorMessage;
+    try {
+      final body = jsonDecode(response.body);
+      errorMessage = body['error'] ??
+          (body['errors'] as List?)?.join('; ') ??
+          'API Error: ${response.statusCode}';
+    } catch (_) {
+      errorMessage = 'API Error: ${response.statusCode}';
+    }
+
+    throw ApiException(errorMessage, response.statusCode);
+  }
+
+  /// Closes the underlying HTTP client.
   void dispose() {
     _client.close();
   }
@@ -85,37 +151,4 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode): $message';
-  // Will be used once http/dio package is added for real API calls
-  // ignore: unused_field
-  static const String _defaultBaseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://localhost:5000/api',
-  );
-
-  /// HTTP GET request.
-  /// Returns decoded JSON response body, or null on 404.
-  static Future<dynamic> get(String url) async {
-    // TODO: Replace with http package or dio once dependencies are added.
-    // Currently a placeholder to satisfy compile-time contracts.
-    // The real implementation will use:
-    //   final response = await http.get(Uri.parse(url), headers: _headers());
-    //   if (response.statusCode == 200) return jsonDecode(response.body);
-    //   if (response.statusCode == 404) return null;
-    //   throw Exception('API Error: ${response.statusCode}');
-    debugPrint('ApiService.get: $url');
-    throw UnimplementedError(
-      'HTTP client not yet configured. '
-      'Add http or dio package and implement ApiService.get.',
-    );
-  }
-
-  /// HTTP POST request.
-  static Future<dynamic> post(String url, {Map<String, dynamic>? body}) async {
-    debugPrint('ApiService.post: $url');
-    throw UnimplementedError(
-      'HTTP client not yet configured. '
-      'Add http or dio package and implement ApiService.post.',
-    );
-  }
- main
 }
