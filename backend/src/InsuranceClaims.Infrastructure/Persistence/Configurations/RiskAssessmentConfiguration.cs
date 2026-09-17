@@ -1,3 +1,4 @@
+using InsuranceClaims.Domain.ClaimsManagement;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -5,7 +6,6 @@ namespace InsuranceClaims.Infrastructure.Persistence.Configurations;
 
 /// <summary>
 /// EF Core configuration for the RiskAssessment entity.
-/// FK to Claim will be enforced when Kinukshan runs migrations.
 /// </summary>
 public class RiskAssessmentConfiguration : IEntityTypeConfiguration<Domain.RiskAssessment.RiskAssessment>
 {
@@ -73,6 +73,12 @@ public class RiskAssessmentConfiguration : IEntityTypeConfiguration<Domain.RiskA
             .HasDatabaseName("IX_risk_assessments_claim_id");
 
         // ── Relationships ───────────────────────────────────────
+        // RiskAssessment → Claim (many-to-one, navigation-less)
+        builder.HasOne<Claim>()
+            .WithMany()
+            .HasForeignKey(r => r.ClaimId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // RiskAssessment → FraudFlags (one-to-many)
         builder.HasMany(r => r.FraudFlags)
             .WithOne(f => f.RiskAssessment)
@@ -84,8 +90,5 @@ public class RiskAssessmentConfiguration : IEntityTypeConfiguration<Domain.RiskA
             .WithOne(fc => fc.RiskAssessment)
             .HasForeignKey<Domain.RiskAssessment.FraudCase>(fc => fc.RiskAssessmentId)
             .OnDelete(DeleteBehavior.Cascade);
-
-        // NOTE: FK to Claim (RiskAssessment.ClaimId → Claim.Id)
-        // will be configured during migration by Kinukshan.
     }
 }

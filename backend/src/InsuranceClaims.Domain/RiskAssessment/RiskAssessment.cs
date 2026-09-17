@@ -5,7 +5,7 @@ namespace InsuranceClaims.Domain.RiskAssessment;
 
 /// <summary>
 /// Represents a risk assessment for a claim.
-/// Links to Claim via ClaimId (FK applied during migration by Kinukshan).
+/// Links to Claim via ClaimId.
 /// </summary>
 public class RiskAssessment : BaseEntity
 {
