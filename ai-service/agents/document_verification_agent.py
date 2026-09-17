@@ -13,6 +13,8 @@ Does NOT override deterministic policy/business rules.
 No hidden chain-of-thought storage.
 """
 
+from __future__ import annotations
+
 from datetime import date, datetime
 from schemas.claim_schema import DocumentVerificationRequest, DocumentData
 from schemas.document_result_schema import DocumentVerificationResult, DocumentInconsistency

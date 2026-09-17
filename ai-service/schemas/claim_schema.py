@@ -1,5 +1,7 @@
 """Schema definitions for claim data structures used by the AI agents."""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import date, datetime

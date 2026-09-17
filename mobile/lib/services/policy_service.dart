@@ -1,5 +1,5 @@
-/// Policy service — Component A (Member 1).
-/// Communicates with ASP.NET Core Web API for policy operations.
+// Policy service — Component A (Member 1).
+// Communicates with ASP.NET Core Web API for policy operations.
 import '../models/policy.dart';
 import 'api_service.dart';
 

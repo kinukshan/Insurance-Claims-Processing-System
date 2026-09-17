@@ -6,6 +6,8 @@ Only structured workflow information and auditable execution
 summaries are stored. No chain-of-thought or hidden reasoning.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional
 

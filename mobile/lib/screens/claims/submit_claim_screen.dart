@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+
 import 'dart:io';
+
 import '../../services/claim_service.dart';
 
 /// Submit claim screen — Component B (Member 2).
@@ -30,7 +32,14 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
   String? _error;
 
   static const _claimTypes = [
-    'Auto', 'Home', 'Health', 'Life', 'Travel', 'Property', 'Liability', 'Other',
+    'Auto',
+    'Home',
+    'Health',
+    'Life',
+    'Travel',
+    'Property',
+    'Liability',
+    'Other',
   ];
 
   static const _documentTypeMap = {
@@ -77,7 +86,9 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
               title: const Text('Take Photo'),
               onTap: () async {
                 Navigator.pop(ctx);
-                final photo = await _picker.pickImage(source: ImageSource.camera);
+                final photo = await _picker.pickImage(
+                  source: ImageSource.camera,
+                );
                 if (photo != null) setState(() => _evidenceFiles.add(photo));
               },
             ),
@@ -87,7 +98,9 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
               onTap: () async {
                 Navigator.pop(ctx);
                 final images = await _picker.pickMultiImage();
-                if (images.isNotEmpty) setState(() => _evidenceFiles.addAll(images));
+                if (images.isNotEmpty) {
+                  setState(() => _evidenceFiles.addAll(images));
+                }
               },
             ),
           ],
@@ -185,14 +198,15 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
                   prefixIcon: Icon(Icons.policy),
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Policy ID is required' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Policy ID is required'
+                    : null,
               ),
               const SizedBox(height: 16),
 
               // Claim Type
               DropdownButtonFormField<String>(
-                value: _claimType,
+                initialValue: _claimType,
                 decoration: const InputDecoration(
                   labelText: 'Claim Type',
                   prefixIcon: Icon(Icons.category),
@@ -230,8 +244,9 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
                   prefixIcon: Icon(Icons.location_on),
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Location is required' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Location is required'
+                    : null,
               ),
               const SizedBox(height: 16),
 
@@ -245,8 +260,9 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 4,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Description is required' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Description is required'
+                    : null,
               ),
               const SizedBox(height: 16),
 
@@ -259,11 +275,17 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
                   prefixIcon: Icon(Icons.attach_money),
                   border: OutlineInputBorder(),
                 ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Amount is required';
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Amount is required';
+                  }
                   final amount = double.tryParse(v.trim());
-                  if (amount == null || amount <= 0) return 'Must be greater than zero';
+                  if (amount == null || amount <= 0) {
+                    return 'Must be greater than zero';
+                  }
                   return null;
                 },
               ),
@@ -294,7 +316,9 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
                             child: Text(
                               'No evidence attached.\nTap "Add" to capture or select photos.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: theme.colorScheme.outline),
+                              style: TextStyle(
+                                color: theme.colorScheme.outline,
+                              ),
                             ),
                           ),
                         )
@@ -318,7 +342,8 @@ class _SubmitClaimScreenState extends State<SubmitClaimScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
-                              _documentTypeMap[_claimType] ?? 'Supporting Document',
+                              _documentTypeMap[_claimType] ??
+                                  'Supporting Document',
                             ),
                             trailing: IconButton(
                               icon: const Icon(Icons.close),
