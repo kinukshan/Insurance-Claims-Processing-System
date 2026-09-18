@@ -1,12 +1,19 @@
 // Create new policy — Component A (Member 1)
-// Implements policy creation form with validation
+// Implements policy creation form with validation, dropdown selection, and auth integration
 
-import React, { useState } from 'react'
-import { createPolicy } from '../../services/policyService'
+import React, { useState, useEffect } from 'react'
+import { createPolicy, getPolicyTypes } from '../../services/policyService'
+import { useAuth } from '../../context/AuthContext'
 
 function PolicyCreate({ onBack, onCreated }) {
+  const { user, role } = useAuth()
+  const isPolicyholder = role === 'Policyholder'
+
+  const [policyTypes, setPolicyTypes] = useState([])
+  const [loadingTypes, setLoadingTypes] = useState(true)
+
   const [formData, setFormData] = useState({
-    policyholderId: '',
+    policyholderId: isPolicyholder ? (user?.userId || '') : '',
     policyTypeId: '',
     coverageLimit: '',
     deductible: '',
@@ -19,6 +26,34 @@ function PolicyCreate({ onBack, onCreated }) {
   const [submitError, setSubmitError] = useState(null)
   const [success, setSuccess] = useState(false)
 
+  // Fetch policy types on mount
+  useEffect(() => {
+    let mounted = true
+    getPolicyTypes()
+      .then((types) => {
+        if (mounted) {
+          setPolicyTypes(types || [])
+          setLoadingTypes(false)
+        }
+      })
+      .catch((err) => {
+        if (mounted) {
+          console.error('Failed to load policy types:', err)
+          setLoadingTypes(false)
+        }
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  // Auto-sync policyholderId for policyholder
+  useEffect(() => {
+    if (isPolicyholder && user?.userId) {
+      setFormData((prev) => ({ ...prev, policyholderId: user.userId }))
+    }
+  }, [isPolicyholder, user?.userId])
+
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -28,25 +63,39 @@ function PolicyCreate({ onBack, onCreated }) {
     }
   }
 
+  const handlePolicyTypeChange = (e) => {
+    const selectedTypeId = e.target.value
+    const selectedType = policyTypes.find((pt) => pt.id === selectedTypeId)
+
+    setFormData((prev) => ({
+      ...prev,
+      policyTypeId: selectedTypeId,
+      // Autofill defaults if empty
+      coverageLimit: selectedType?.defaultCoverageLimit != null ? String(selectedType.defaultCoverageLimit) : prev.coverageLimit,
+      deductible: selectedType?.defaultDeductible != null ? String(selectedType.defaultDeductible) : prev.deductible,
+    }))
+
+    if (errors.policyTypeId) {
+      setErrors((prev) => ({ ...prev, policyTypeId: null }))
+    }
+  }
+
   const validate = () => {
     const newErrors = {}
 
-    if (!formData.policyholderId.trim()) {
+    const effectivePolicyholderId = isPolicyholder ? (user?.userId || '') : formData.policyholderId.trim()
+
+    if (!effectivePolicyholderId) {
       newErrors.policyholderId = 'Policyholder ID is required.'
     } else {
       const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      if (!guidRegex.test(formData.policyholderId.trim())) {
+      if (!guidRegex.test(effectivePolicyholderId)) {
         newErrors.policyholderId = 'Must be a valid GUID.'
       }
     }
 
     if (!formData.policyTypeId.trim()) {
-      newErrors.policyTypeId = 'Policy Type ID is required.'
-    } else {
-      const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      if (!guidRegex.test(formData.policyTypeId.trim())) {
-        newErrors.policyTypeId = 'Must be a valid GUID.'
-      }
+      newErrors.policyTypeId = 'Please select a policy type.'
     }
 
     const coverageLimit = Number(formData.coverageLimit)
@@ -89,7 +138,7 @@ function PolicyCreate({ onBack, onCreated }) {
     setSubmitting(true)
     try {
       const payload = {
-        policyholderId: formData.policyholderId.trim(),
+        policyholderId: isPolicyholder ? (user?.userId || '') : formData.policyholderId.trim(),
         policyTypeId: formData.policyTypeId.trim(),
         coverageLimit: Number(formData.coverageLimit),
         deductible: Number(formData.deductible) || 0,
@@ -114,6 +163,8 @@ function PolicyCreate({ onBack, onCreated }) {
     borderRadius: '6px',
     fontSize: '0.9rem',
     boxSizing: 'border-box',
+    backgroundColor: '#fff',
+    color: '#111827',
   }
 
   const errorFieldStyle = { ...fieldStyle, borderColor: '#dc2626' }
@@ -145,35 +196,62 @@ function PolicyCreate({ onBack, onCreated }) {
       )}
 
       <form onSubmit={handleSubmit}>
+        {/* Policyholder Field */}
         <div style={{ marginBottom: '16px' }}>
-          <label style={labelStyle}>Policyholder ID *</label>
-          <input
-            type="text"
-            name="policyholderId"
-            value={formData.policyholderId}
-            onChange={handleChange}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            style={errors.policyholderId ? errorFieldStyle : fieldStyle}
-          />
-          {errors.policyholderId && <div style={fieldErrorStyle}>{errors.policyholderId}</div>}
+          <label style={labelStyle}>Policyholder</label>
+          {isPolicyholder ? (
+            <div
+              style={{
+                padding: '10px 14px',
+                backgroundColor: '#f3f4f6',
+                border: '1px solid #e5e7eb',
+                borderRadius: '6px',
+                fontSize: '0.9rem',
+                color: '#1f2937',
+              }}
+            >
+              <strong>{user?.firstName} {user?.lastName}</strong> ({user?.email})
+            </div>
+          ) : (
+            <>
+              <input
+                type="text"
+                name="policyholderId"
+                value={formData.policyholderId}
+                onChange={handleChange}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                style={errors.policyholderId ? errorFieldStyle : fieldStyle}
+              />
+              {errors.policyholderId && <div style={fieldErrorStyle}>{errors.policyholderId}</div>}
+            </>
+          )}
         </div>
 
+        {/* Policy Type Dropdown */}
         <div style={{ marginBottom: '16px' }}>
-          <label style={labelStyle}>Policy Type ID *</label>
-          <input
-            type="text"
+          <label style={labelStyle}>Policy Type *</label>
+          <select
             name="policyTypeId"
             value={formData.policyTypeId}
-            onChange={handleChange}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            onChange={handlePolicyTypeChange}
+            disabled={loadingTypes}
             style={errors.policyTypeId ? errorFieldStyle : fieldStyle}
-          />
+          >
+            <option value="">
+              {loadingTypes ? 'Loading policy types...' : 'Select a policy type...'}
+            </option>
+            {policyTypes.map((pt) => (
+              <option key={pt.id} value={pt.id}>
+                {pt.name} {pt.description ? `— ${pt.description}` : ''}
+              </option>
+            ))}
+          </select>
           {errors.policyTypeId && <div style={fieldErrorStyle}>{errors.policyTypeId}</div>}
         </div>
 
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Coverage Limit *</label>
+            <label style={labelStyle}>Coverage Limit ($) *</label>
             <input
               type="number"
               name="coverageLimit"
@@ -187,7 +265,7 @@ function PolicyCreate({ onBack, onCreated }) {
             {errors.coverageLimit && <div style={fieldErrorStyle}>{errors.coverageLimit}</div>}
           </div>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Deductible</label>
+            <label style={labelStyle}>Deductible ($)</label>
             <input
               type="number"
               name="deductible"

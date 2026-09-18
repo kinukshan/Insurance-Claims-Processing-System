@@ -2,6 +2,7 @@ using InsuranceClaims.Application.PayoutProcessing.DTOs;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
 using InsuranceClaims.Domain.PayoutProcessing;
 using InsuranceClaims.Infrastructure.ExternalServices.Payments;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace InsuranceClaims.Api.Controllers;
@@ -10,14 +11,13 @@ namespace InsuranceClaims.Api.Controllers;
 /// Payout processing endpoints — Component D (Kinukshan).
 ///
 /// Reviewer identity is derived from the authenticated server context.
-/// Currently uses placeholder identity until shared auth middleware is wired.
 ///
 /// Financial inputs (CoverageLimit, Deductible, ApprovedClaimAmount) come from
 /// IPayoutContextProvider on the backend — never from client requests.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-// TODO: [Authorize(Roles = "Staff,Admin")] — enable when auth middleware is wired
+[Authorize(Roles = "ClaimsAdjuster,Underwriter,Admin")]
 public class PayoutsController : ControllerBase
 {
     private readonly IPayoutService _payoutService;

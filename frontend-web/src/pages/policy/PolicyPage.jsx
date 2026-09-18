@@ -48,7 +48,7 @@ function PolicyPage() {
       return (
         <PolicyList
           onSelectPolicy={(policy) => {
-            setSelectedPolicyId(policy.id)
+            setSelectedPolicyId(policy?.id || policy)
             setView('details')
           }}
           onCreatePolicy={() => setView('create')}
