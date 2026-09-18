@@ -1,6 +1,7 @@
 using InsuranceClaims.Application.RiskAssessment.DTOs;
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
 using InsuranceClaims.Application.RiskAssessment.Validators;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace InsuranceClaims.Api.Controllers;
@@ -10,6 +11,7 @@ namespace InsuranceClaims.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "ClaimsAdjuster,Underwriter,Admin")]
 public class RiskAssessmentsController : ControllerBase
 {
     private readonly IRiskAssessmentService _riskService;

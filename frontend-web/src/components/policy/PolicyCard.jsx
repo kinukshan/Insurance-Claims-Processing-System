@@ -7,7 +7,7 @@ import PolicyStatusBadge from './PolicyStatusBadge'
 function PolicyCard({ policy, onSelect }) {
   return (
     <div
-      onClick={() => onSelect && onSelect(policy.id)}
+      onClick={() => onSelect && onSelect(policy)}
       style={{
         border: '1px solid #e5e7eb',
         borderRadius: '8px',

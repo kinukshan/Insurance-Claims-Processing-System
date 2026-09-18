@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
 
@@ -9,6 +11,7 @@ namespace InsuranceClaims.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class PoliciesController : ControllerBase
 {
     private readonly IPolicyService _policyService;
@@ -52,7 +55,23 @@ public class PoliciesController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/policies/my — Retrieve policies for the authenticated Policyholder.
+    /// </summary>
+    [HttpGet("my")]
+    public async Task<ActionResult<IEnumerable<PolicyDto>>> GetMyPolicies()
+    {
+        var userId = GetCurrentUserId();
+        if (userId == Guid.Empty)
+            return Unauthorized();
+
+        var policies = await _policyService.GetByPolicyholderIdAsync(userId);
+        return Ok(policies);
+    }
+
+    /// <summary>
     /// POST /api/policies — Create a new policy.
+    /// For Policyholder role: PolicyholderId is derived from JWT (cannot be overridden).
+    /// For Admin/Underwriter: PolicyholderId from request body is used.
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<PolicyDto>> Create([FromBody] CreatePolicyDto dto)
@@ -62,6 +81,18 @@ public class PoliciesController : ControllerBase
 
         try
         {
+            // For Policyholder role, override PolicyholderId with authenticated user's ID
+            var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value;
+            if (roleClaim == "Policyholder")
+            {
+                var userId = GetCurrentUserId();
+                if (userId == Guid.Empty)
+                    return Unauthorized();
+
+                // Override PolicyholderId with the authenticated user's ID
+                dto.PolicyholderId = userId;
+            }
+
             var created = await _policyService.CreateAsync(dto);
             return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }
@@ -158,5 +189,26 @@ public class PoliciesController : ControllerBase
     {
         var expired = await _policyService.ValidateExpiryAsync();
         return Ok(expired);
+    }
+
+    /// <summary>
+    /// Extracts the current user's ID from JWT claims.
+    /// Falls back to X-User-Id header in Development only.
+    /// </summary>
+    private Guid GetCurrentUserId()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                       ?? User.FindFirst("sub")?.Value;
+
+        if (Guid.TryParse(userIdClaim, out var userId))
+            return userId;
+
+        // Dev fallback: allow X-User-Id header for testing without auth
+        if (HttpContext.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true &&
+            Request.Headers.TryGetValue("X-User-Id", out var headerValue) &&
+            Guid.TryParse(headerValue, out var headerUserId))
+            return headerUserId;
+
+        return Guid.Empty;
     }
 }

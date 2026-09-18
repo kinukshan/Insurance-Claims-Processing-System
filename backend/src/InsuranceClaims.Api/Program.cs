@@ -19,7 +19,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Register infrastructure services (DbContext, repositories, etc.)
+// Register infrastructure services (DbContext, repositories, auth, etc.)
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
@@ -42,9 +42,10 @@ app.UseMiddleware<ExceptionMiddleware>();
 // Serve uploaded files
 app.UseStaticFiles();
 
-// TODO: Add Authentication & Authorization middleware
+// Authentication & Authorization
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
-

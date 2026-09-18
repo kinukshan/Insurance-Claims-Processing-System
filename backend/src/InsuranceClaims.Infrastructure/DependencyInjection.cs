@@ -1,7 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using InsuranceClaims.Infrastructure.Persistence;
+using InsuranceClaims.Infrastructure.Authentication;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
 using InsuranceClaims.Infrastructure.Services;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
@@ -14,6 +18,7 @@ using InsuranceClaims.Infrastructure.ExternalServices.Payments;
 using InsuranceClaims.Infrastructure.AgentIntegration;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
 using InsuranceClaims.Application.PayoutProcessing.Services;
+using InsuranceClaims.Application.Authentication;
 
 namespace InsuranceClaims.Infrastructure;
 
@@ -30,6 +35,39 @@ public static class DependencyInjection
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection")));
+
+        // ── Authentication ───────────────────────────────────────────
+        services.AddSingleton<PasswordService>();
+        services.AddSingleton<JwtService>();
+        services.AddScoped<IAuthService, AuthService>();
+
+        // JWT Bearer authentication
+        var jwtKey = configuration["Jwt:Key"];
+        if (!string.IsNullOrEmpty(jwtKey))
+        {
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = configuration["Jwt:Issuer"] ?? "InsuranceClaims",
+                    ValidAudience = configuration["Jwt:Audience"] ?? "InsuranceClaims.React",
+                    IssuerSigningKey = new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(jwtKey)),
+                    ClockSkew = TimeSpan.FromMinutes(1)
+                };
+            });
+        }
+
+        services.AddAuthorization();
 
         // Policy Management
         services.AddScoped<IPolicyService, PolicyService>();
@@ -73,8 +111,6 @@ public static class DependencyInjection
 
         // Agent integration: ASP.NET Core → Internal AI Service
         services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
-
-        // TODO: Register repositories, authentication services, external service clients for other modules
 
         return services;
     }

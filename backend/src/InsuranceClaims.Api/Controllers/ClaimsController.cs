@@ -11,6 +11,7 @@ namespace InsuranceClaims.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ClaimsController : ControllerBase
 {
     private readonly IClaimService _claimService;
@@ -22,7 +23,7 @@ public class ClaimsController : ControllerBase
 
     /// <summary>
     /// Extracts the current user's ID from JWT claims.
-    /// Falls back to a dev-mode header for testing without auth.
+    /// Falls back to X-User-Id header in Development only.
     /// </summary>
     private Guid GetCurrentUserId()
     {
@@ -33,7 +34,8 @@ public class ClaimsController : ControllerBase
             return userId;
 
         // Dev fallback: allow X-User-Id header for testing without auth
-        if (Request.Headers.TryGetValue("X-User-Id", out var headerValue) &&
+        if (HttpContext.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true &&
+            Request.Headers.TryGetValue("X-User-Id", out var headerValue) &&
             Guid.TryParse(headerValue, out var headerUserId))
             return headerUserId;
 
