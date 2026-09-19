@@ -277,3 +277,72 @@ class TestSafeFailure:
         # Should NOT raise — should return a structured error
         assert result.complete is False
         assert any("failed safely" in w.lower() for w in result.warnings)
+
+
+# ═════════════════════════════════════════════
+# Gemini Hybrid & Invariance Tests
+# ═════════════════════════════════════════════
+
+
+class TestGeminiHybridDocumentVerification:
+    """Tests for hybrid Gemini reasoning integration and rule invariance."""
+
+    def test_document_verification_with_gemini_success(self):
+        """When Gemini returns an explanation, ai_used is True and deterministic fields are preserved."""
+        from unittest.mock import MagicMock
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.model_name = "gemini-2.5-flash"
+        mock_gemini.generate_text.return_value = "All 4 required auto documents are present and consistent."
+
+        agent = DocumentVerificationAgent(gemini_client_instance=mock_gemini)
+        request = _make_request(documents=_make_auto_docs())
+        result = agent.verify(request)
+
+        # Deterministic checks preserved
+        assert result.complete is True
+        assert len(result.missing_items) == 0
+        # AI metadata populated
+        assert result.ai_used is True
+        assert result.ai_provider == "gemini"
+        assert result.ai_model == "gemini-2.5-flash"
+        assert result.reasoning_summary == "All 4 required auto documents are present and consistent."
+        assert result.fallback_used is False
+
+    def test_gemini_cannot_override_missing_documents(self):
+        """Even if Gemini claims documents look great, missing items must keep complete=False."""
+        from unittest.mock import MagicMock
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.model_name = "gemini-2.5-flash"
+        mock_gemini.generate_text.return_value = "The claimant provided damage photos."
+
+        agent = DocumentVerificationAgent(gemini_client_instance=mock_gemini)
+        # Missing Police Report, Repair Estimate, Driver License
+        request = _make_request(documents=[DocumentData(document_type="Photos of Damage", file_name="p.jpg")])
+        result = agent.verify(request)
+
+        # Invariance: complete MUST be False
+        assert result.complete is False
+        assert "Police Report" in result.missing_items
+        assert result.ai_used is True
+
+    def test_gemini_failure_falls_back_deterministically(self):
+        """When Gemini throws an exception, the agent falls back with fallback_used=True."""
+        from unittest.mock import MagicMock
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.side_effect = RuntimeError("API quota exceeded")
+
+        agent = DocumentVerificationAgent(gemini_client_instance=mock_gemini)
+        request = _make_request(documents=_make_auto_docs())
+        result = agent.verify(request)
+
+        # Deterministic checks still pass
+        assert result.complete is True
+        assert result.ai_used is False
+        assert result.fallback_used is True
+        assert result.reasoning_summary is None

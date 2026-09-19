@@ -50,6 +50,13 @@ class ValidationSafetyAgent:
 
     AGENT_ID = "validation-safety-agent"
 
+    def __init__(self, gemini_client_instance=None):
+        if gemini_client_instance is not None:
+            self._gemini = gemini_client_instance
+        else:
+            from services.gemini_client import gemini_client
+            self._gemini = gemini_client
+
     def validate_payout_proposal(
         self, request: PayoutValidationRequest
     ) -> PayoutValidationResult:
@@ -123,13 +130,62 @@ class ValidationSafetyAgent:
             f"{'PASSED' if is_valid else 'FAILED'} with {len(violations)} violation(s)."
         )
 
+        # Gemini contextual safety analysis
+        ai_used = False
+        ai_provider = None
+        ai_model = None
+        reasoning_summary = None
+        fallback_used = False
+
+        if self._gemini and self._gemini.is_available:
+            try:
+                prompt = (
+                    f"Claim ID: {request.claim_id}\n"
+                    f"Policy Type: {request.policy_type}\n"
+                    f"Claim Type: {request.claim_type}\n"
+                    f"Approved Amount: ${request.approved_claim_amount:,.2f}\n"
+                    f"Coverage Limit: ${request.coverage_limit:,.2f}\n"
+                    f"Deductible: ${request.deductible:,.2f}\n"
+                    f"Proposed Payout: ${request.proposed_payout:,.2f}\n"
+                    f"Deterministic Validation: {'PASSED' if is_valid else 'FAILED'}\n"
+                    f"Violations: {'; '.join(violations) if violations else 'None'}\n\n"
+                    "Provide a concise 2-sentence financial safety summary explaining why this payout proposal is valid "
+                    "or why specific policy rules were violated. Reiterate that human supervisor approval is required."
+                )
+                system_instruction = (
+                    "You are an insurance payout validation and financial safety assistant. "
+                    "Never approve payouts, change payout amounts, or override policy limits. "
+                    "Always respect deterministic rule outcomes."
+                )
+                explanation = self._gemini.generate_text(
+                    prompt=prompt,
+                    system_instruction=system_instruction,
+                )
+                if explanation:
+                    ai_used = True
+                    ai_provider = "gemini"
+                    model = getattr(self._gemini, "model_name", "gemini-2.5-flash")
+                    ai_model = model if isinstance(model, str) else "gemini-2.5-flash"
+                    reasoning_summary = explanation
+                else:
+                    fallback_used = True
+            except Exception:
+                fallback_used = True
+        else:
+            fallback_used = True
+
         return PayoutValidationResult(
             valid=is_valid,
             violations=violations,
-            requires_human_approval=True,  # All payouts require human approval
+            requires_human_approval=True,  # All payouts strictly require human approval
             agent_id=self.AGENT_ID,
             timestamp=datetime.utcnow(),
             summary=summary,
+            ai_used=ai_used,
+            ai_provider=ai_provider,
+            ai_model=ai_model,
+            reasoning_summary=reasoning_summary,
+            fallback_used=fallback_used,
         )
 
     def validate_from_dict(self, data: dict) -> PayoutValidationResult:

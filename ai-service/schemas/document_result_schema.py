@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -22,3 +23,8 @@ class DocumentVerificationResult(BaseModel):
         default_factory=list, description="List of detected inconsistencies"
     )
     warnings: list[str] = Field(default_factory=list, description="General warnings or notes")
+    ai_used: bool = Field(default=False, description="Whether Gemini LLM reasoning was utilized")
+    ai_provider: Optional[str] = Field(default=None, description="LLM provider name")
+    ai_model: Optional[str] = Field(default=None, description="LLM model name used")
+    reasoning_summary: Optional[str] = Field(default=None, description="Gemini contextual reasoning and reviewer explanation")
+    fallback_used: bool = Field(default=False, description="Whether deterministic fallback was used")

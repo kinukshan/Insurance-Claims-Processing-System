@@ -41,6 +41,11 @@ class PayoutValidationResult(BaseModel):
         default="",
         description="Auditable summary of the validation result"
     )
+    ai_used: bool = Field(default=False, description="Whether Gemini LLM reasoning was utilized")
+    ai_provider: Optional[str] = Field(default=None, description="LLM provider name")
+    ai_model: Optional[str] = Field(default=None, description="LLM model name used")
+    reasoning_summary: Optional[str] = Field(default=None, description="Gemini contextual explanation of payout validity")
+    fallback_used: bool = Field(default=False, description="Whether deterministic fallback was used")
 
 
 class PayoutProposal(BaseModel):

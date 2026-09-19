@@ -79,8 +79,15 @@ class CoordinatorAgent:
     2. Creating a structured workflow plan
     3. Delegating steps to specialist agents
     4. Tracking workflow progress
-    5. Producing a final workflow result
+    5. Producing a final workflow result with hybrid Gemini coordination notes
     """
+
+    def __init__(self, gemini_client_instance=None):
+        if gemini_client_instance is not None:
+            self._gemini = gemini_client_instance
+        else:
+            from services.gemini_client import gemini_client
+            self._gemini = gemini_client
 
     def create_plan(self, objective: WorkflowObjective) -> WorkflowPlan:
         """
@@ -259,6 +266,47 @@ class CoordinatorAgent:
         )
         total = len(final_plan.steps)
 
+        # LLM Coordination Reasoning
+        ai_used = False
+        ai_provider = None
+        ai_model = None
+        reasoning_summary = None
+        fallback_used = False
+
+        if self._gemini and self._gemini.is_available:
+            try:
+                step_overview = ", ".join(f"{s.step_type.value}: {s.status.value}" for s in final_plan.steps)
+                prompt = (
+                    f"Workflow ID: {final_plan.workflow_id}\n"
+                    f"Claim ID: {objective.claim_id}\n"
+                    f"Claim Type: {objective.claim_type or 'General'}\n"
+                    f"Priority: {objective.priority or 'normal'}\n"
+                    f"Steps: {step_overview}\n"
+                    f"Workflow Status: {final_plan.status.value}\n\n"
+                    "Provide a concise 2-sentence coordination summary for the claims supervisor, "
+                    "confirming that the pipeline ran and reminding that final payout disbursement strictly requires human approval."
+                )
+                system_instruction = (
+                    "You are an insurance workflow coordination assistant. "
+                    "Never alter mandatory workflow steps or bypass human approval."
+                )
+                coordination_note = self._gemini.generate_text(
+                    prompt=prompt,
+                    system_instruction=system_instruction,
+                )
+                if coordination_note:
+                    ai_used = True
+                    ai_provider = "gemini"
+                    model = getattr(self._gemini, "model_name", "gemini-2.5-flash")
+                    ai_model = model if isinstance(model, str) else "gemini-2.5-flash"
+                    reasoning_summary = coordination_note
+                else:
+                    fallback_used = True
+            except Exception:
+                fallback_used = True
+        else:
+            fallback_used = True
+
         return WorkflowResult(
             workflow_id=final_plan.workflow_id,
             claim_id=final_plan.claim_id,
@@ -270,6 +318,11 @@ class CoordinatorAgent:
                 f"claim {objective.claim_id}."
             ),
             completed_at=datetime.utcnow(),
+            ai_used=ai_used,
+            ai_provider=ai_provider,
+            ai_model=ai_model,
+            reasoning_summary=reasoning_summary,
+            fallback_used=fallback_used,
         )
 
     def _validate_objective(self, objective: WorkflowObjective) -> None:

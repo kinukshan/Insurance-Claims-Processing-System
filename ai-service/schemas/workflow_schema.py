@@ -85,3 +85,8 @@ class WorkflowResult(BaseModel):
     steps: list[WorkflowStep]
     summary: str = Field(..., description="Human-readable summary of the workflow outcome")
     completed_at: datetime = Field(default_factory=datetime.utcnow)
+    ai_used: bool = Field(default=False, description="Whether Gemini LLM reasoning was utilized")
+    ai_provider: Optional[str] = Field(default=None, description="LLM provider name")
+    ai_model: Optional[str] = Field(default=None, description="LLM model name used")
+    reasoning_summary: Optional[str] = Field(default=None, description="Gemini coordination and workflow reasoning")
+    fallback_used: bool = Field(default=False, description="Whether deterministic fallback was used")

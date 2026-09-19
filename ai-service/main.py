@@ -22,6 +22,7 @@ from schemas.document_result_schema import DocumentVerificationResult
 from schemas.risk_result_schema import RiskAssessmentResult
 from schemas.payout_result_schema import PayoutValidationRequest
 from state.workflow_state import workflow_store
+from services.gemini_client import gemini_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,8 +40,20 @@ _document_agent = DocumentVerificationAgent()
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for container orchestration."""
-    return {"status": "healthy", "service": "ai-service"}
+    """Health check endpoint for container orchestration and AI provider readiness."""
+    return {
+        "status": "healthy",
+        "service": "ai-service",
+        "llm_provider": "gemini",
+        "llm_configured": gemini_client.is_available,
+        "llm_model": gemini_client.model_name,
+    }
+
+
+@app.get("/health/gemini")
+async def gemini_connectivity_check():
+    """Safe diagnostic check for Gemini connectivity. Uses a harmless prompt; never exposes secrets."""
+    return await gemini_client.check_connectivity_async()
 
 
 # ── Coordinator / Planning Agent (Kaushikesh) ────────────────────────

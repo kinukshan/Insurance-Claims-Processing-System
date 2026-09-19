@@ -369,3 +369,79 @@ async def test_high_score_triggers_escalation(agent, high_amount_claim):
     # High amount (120k) + duplicate = should exceed escalation threshold
     assert result.risk_score >= 50.0
     assert result.recommendation == RecommendationType.ESCALATE
+
+
+# ══════════════════════════════════════════════════════════════
+# Gemini Hybrid & Invariance Tests
+# ══════════════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_fraud_risk_with_gemini_success(low_risk_claim):
+    """When Gemini returns an explanation, ai_used is True and risk_score is strictly deterministic."""
+    from unittest.mock import MagicMock, AsyncMock
+
+    mock_gemini = MagicMock()
+    mock_gemini.is_available = True
+    mock_gemini.model_name = "gemini-2.5-flash"
+    mock_gemini.generate_text_async = AsyncMock(
+        return_value="Claim amount is within normal parameters. No adverse historical patterns detected."
+    )
+
+    agent = FraudRiskAgent(gemini_client_instance=mock_gemini)
+
+    with patch("agents.fraud_risk_agent.lookup_claim_history", new_callable=AsyncMock, return_value=[]):
+        result = await agent.assess(low_risk_claim)
+
+    # Deterministic score preserved
+    assert result.risk_score == 0.0
+    assert result.recommendation == RecommendationType.PROCEED
+    # AI metadata populated
+    assert result.ai_used is True
+    assert result.ai_provider == "gemini"
+    assert result.ai_model == "gemini-2.5-flash"
+    assert "within normal parameters" in result.reasoning_summary
+    assert result.fallback_used is False
+
+
+@pytest.mark.asyncio
+async def test_gemini_cannot_alter_deterministic_score(high_amount_claim):
+    """Even if Gemini claims the claim is safe, the high-amount deterministic rule and score remain authoritative."""
+    from unittest.mock import MagicMock, AsyncMock
+
+    mock_gemini = MagicMock()
+    mock_gemini.is_available = True
+    mock_gemini.model_name = "gemini-2.5-flash"
+    mock_gemini.generate_text_async = AsyncMock(
+        return_value="The claimant seems trustworthy. Recommend approval."
+    )
+
+    agent = FraudRiskAgent(gemini_client_instance=mock_gemini)
+
+    with patch("agents.fraud_risk_agent.lookup_claim_history", new_callable=AsyncMock, return_value=[]):
+        result = await agent.assess(high_amount_claim)
+
+    # Score MUST still reflect HighAmount flag deterministically
+    assert result.risk_score > 0.0
+    assert any(f.flag_type == "HighAmount" for f in result.flags)
+    assert result.ai_used is True
+
+
+@pytest.mark.asyncio
+async def test_fraud_risk_gemini_failure_fallback(low_risk_claim):
+    """When Gemini throws an error, the agent falls back to rules-only result safely."""
+    from unittest.mock import MagicMock, AsyncMock
+
+    mock_gemini = MagicMock()
+    mock_gemini.is_available = True
+    mock_gemini.generate_text_async = AsyncMock(side_effect=RuntimeError("Connection reset by peer"))
+
+    agent = FraudRiskAgent(gemini_client_instance=mock_gemini)
+
+    with patch("agents.fraud_risk_agent.lookup_claim_history", new_callable=AsyncMock, return_value=[]):
+        result = await agent.assess(low_risk_claim)
+
+    # Deterministic score preserved and fallback noted
+    assert result.risk_score == 0.0
+    assert result.ai_used is False
+    assert result.fallback_used is True
+    assert result.reasoning_summary is None

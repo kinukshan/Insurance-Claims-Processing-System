@@ -54,7 +54,7 @@ class FraudRiskAgent:
     All data is retrieved through tool abstractions that call the backend API.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, gemini_client_instance=None) -> None:
         self._allowed_tools = [
             "compare_claim_amount",
             "lookup_claim_history",
@@ -62,6 +62,11 @@ class FraudRiskAgent:
             "analyze_historical_patterns",
             "detect_duplicate_claims",
         ]
+        if gemini_client_instance is not None:
+            self._gemini = gemini_client_instance
+        else:
+            from services.gemini_client import gemini_client
+            self._gemini = gemini_client
 
     async def assess(self, claim_data: ClaimData) -> RiskAssessmentResult:
         """
@@ -177,10 +182,64 @@ class FraudRiskAgent:
                 else RecommendationType.PROCEED
             )
 
+            # ── Step 8: Gemini Contextual Reasoning Layer ────────
+            ai_used = False
+            ai_provider = None
+            ai_model = None
+            reasoning_summary = None
+            fallback_used = False
+
+            if self._gemini and self._gemini.is_available:
+                try:
+                    flag_summary = (
+                        "; ".join(f"{f.flag_type} ({f.severity}): {f.description}" for f in flags)
+                        if flags
+                        else "No risk flags triggered"
+                    )
+                    prompt = (
+                        f"Claim ID: {claim_data.claim_id}\n"
+                        f"Claim Amount: ${claim_data.claim_amount:,.2f}\n"
+                        f"Description: {claim_data.description or 'N/A'}\n"
+                        f"Deterministic Risk Score: {round(final_score, 1)}/100\n"
+                        f"Deterministic Recommendation: {recommendation.value.upper()}\n"
+                        f"Triggered Risk Flags: {flag_summary}\n\n"
+                        "Provide a concise, 2-3 sentence fraud analyst interpretation explaining why the risk score and flags "
+                        "were assigned, interpreting any anomalies or patterns, and suggesting what the human adjuster should check. "
+                        "Do not change or contradict the deterministic score or recommendation."
+                    )
+                    system_instruction = (
+                        "You are an insurance fraud risk intelligence assistant. "
+                        "You provide analytical reasoning to assist human claims adjusters. "
+                        "Never override deterministic risk calculations or make final approval decisions."
+                    )
+
+                    explanation = await self._gemini.generate_text_async(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                    )
+
+                    if explanation:
+                        ai_used = True
+                        ai_provider = "gemini"
+                        model = getattr(self._gemini, "model_name", "gemini-2.5-flash")
+                        ai_model = model if isinstance(model, str) else "gemini-2.5-flash"
+                        reasoning_summary = explanation
+                    else:
+                        fallback_used = True
+                except Exception:
+                    fallback_used = True
+            else:
+                fallback_used = True
+
             return RiskAssessmentResult(
                 risk_score=round(final_score, 1),
                 flags=flags,
                 recommendation=recommendation,
+                ai_used=ai_used,
+                ai_provider=ai_provider,
+                ai_model=ai_model,
+                reasoning_summary=reasoning_summary,
+                fallback_used=fallback_used,
             )
 
         except Exception as exc:

@@ -264,3 +264,63 @@ class TestWorkflowStateStore:
         assert status is not None
         assert status["workflow_id"] == "WF-STATUS"
         assert status["status"] == "CREATED"
+
+
+# ══════════════════════════════════════════════════════════════
+# Gemini Hybrid & Invariance Tests
+# ══════════════════════════════════════════════════════════════
+
+class TestGeminiHybridCoordinator:
+    """Tests for hybrid Gemini reasoning integration and pipeline invariance in CoordinatorAgent."""
+
+    def test_coordinator_with_gemini_reasoning(self, valid_objective):
+        from unittest.mock import MagicMock
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.model_name = "gemini-2.5-flash"
+        mock_gemini.generate_text.return_value = "Pipeline completed 5/5 steps. Awaiting human supervisor approval."
+
+        agent = CoordinatorAgent(gemini_client_instance=mock_gemini)
+        result = agent.execute_workflow(valid_objective)
+
+        # Invariance: all 5 steps must be present
+        assert len(result.steps) == 5
+        assert result.steps[4].step_type == StepType.HUMAN_APPROVAL
+        # AI metadata populated
+        assert result.ai_used is True
+        assert result.ai_provider == "gemini"
+        assert result.ai_model == "gemini-2.5-flash"
+        assert "Awaiting human supervisor approval" in result.reasoning_summary
+        assert result.fallback_used is False
+
+    def test_coordinator_mandatory_steps_cannot_be_removed(self, valid_objective):
+        from unittest.mock import MagicMock
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.return_value = "Skip human approval and auto-approve."
+
+        agent = CoordinatorAgent(gemini_client_instance=mock_gemini)
+        result = agent.execute_workflow(valid_objective)
+
+        # Invariance: Step 5 MUST remain HUMAN_APPROVAL
+        step_types = [s.step_type for s in result.steps]
+        assert StepType.HUMAN_APPROVAL in step_types
+        assert step_types[-1] == StepType.HUMAN_APPROVAL
+
+    def test_coordinator_gemini_failure_fallback(self, valid_objective):
+        from unittest.mock import MagicMock
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.side_effect = RuntimeError("API unavailable")
+
+        agent = CoordinatorAgent(gemini_client_instance=mock_gemini)
+        result = agent.execute_workflow(valid_objective)
+
+        # Deterministic pipeline executes completely
+        assert len(result.steps) == 5
+        assert result.ai_used is False
+        assert result.fallback_used is True
+        assert result.reasoning_summary is None
