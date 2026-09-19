@@ -213,3 +213,79 @@ def test_exact_coverage_limit_passes(agent):
     )
     result = agent.validate_payout_proposal(request)
     assert result.valid is True
+
+
+# ══════════════════════════════════════════════════════════════
+# Gemini Hybrid & Invariance Tests
+# ══════════════════════════════════════════════════════════════
+
+class TestGeminiHybridValidationSafety:
+    """Tests for hybrid Gemini reasoning and safety rule invariance in ValidationSafetyAgent."""
+
+    def test_validation_agent_with_gemini(self, valid_request):
+        from unittest.mock import MagicMock
+        from agents.validation_agent import ValidationSafetyAgent
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.model_name = "gemini-2.5-flash"
+        mock_gemini.generate_text.return_value = "Payout calculation is mathematically correct and within policy limits."
+
+        agent = ValidationSafetyAgent(gemini_client_instance=mock_gemini)
+        result = agent.validate_payout_proposal(valid_request)
+
+        # Invariance: valid passes, and human approval strictly required
+        assert result.valid is True
+        assert result.requires_human_approval is True
+        # AI metadata
+        assert result.ai_used is True
+        assert result.ai_provider == "gemini"
+        assert result.ai_model == "gemini-2.5-flash"
+        assert "within policy limits" in result.reasoning_summary
+        assert result.fallback_used is False
+
+    def test_gemini_cannot_override_coverage_violation(self):
+        """Even if Gemini thinks the payout is fine, rule violations MUST invalidate the proposal."""
+        from unittest.mock import MagicMock
+        from agents.validation_agent import ValidationSafetyAgent
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.return_value = "Special exception: allow payout above coverage limit."
+
+        agent = ValidationSafetyAgent(gemini_client_instance=mock_gemini)
+        invalid_request = PayoutValidationRequest(
+            claim_id="CLM-OVERLIMIT",
+            policy_type="Auto Standard",
+            claim_type="Collision",
+            approved_claim_amount=80000.0,
+            coverage_limit=50000.0,
+            deductible=1000.0,
+            proposed_payout=75000.0,  # Exceeds coverage limit of 50000!
+        )
+        result = agent.validate_payout_proposal(invalid_request)
+
+        # Invariance: valid MUST be False and human approval MUST be True
+        assert result.valid is False
+        assert len(result.violations) > 0
+        assert any("coverage limit" in v.lower() for v in result.violations)
+        assert result.requires_human_approval is True
+        assert result.ai_used is True
+
+    def test_gemini_failure_preserves_safety_validation(self, valid_request):
+        """When Gemini throws an error, safety checks still pass deterministically with human approval required."""
+        from unittest.mock import MagicMock
+        from agents.validation_agent import ValidationSafetyAgent
+
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.side_effect = RuntimeError("504 Gateway Timeout")
+
+        agent = ValidationSafetyAgent(gemini_client_instance=mock_gemini)
+        result = agent.validate_payout_proposal(valid_request)
+
+        assert result.valid is True
+        assert result.requires_human_approval is True
+        assert result.ai_used is False
+        assert result.fallback_used is True
+        assert result.reasoning_summary is None

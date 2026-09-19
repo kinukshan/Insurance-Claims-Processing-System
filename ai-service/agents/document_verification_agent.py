@@ -38,10 +38,17 @@ class DocumentVerificationAgent:
         "Other": ["Supporting Document"],
     }
 
+    def __init__(self, gemini_client_instance=None):
+        if gemini_client_instance is not None:
+            self._gemini = gemini_client_instance
+        else:
+            from services.gemini_client import gemini_client
+            self._gemini = gemini_client
+
     def verify(self, request: DocumentVerificationRequest) -> DocumentVerificationResult:
         """
         Verify submitted documents against the required checklist
-        and check for data inconsistencies.
+        and check for data inconsistencies with hybrid Gemini reasoning.
 
         Args:
             request: The verification request containing claim data and documents.
@@ -50,15 +57,67 @@ class DocumentVerificationAgent:
             Structured DocumentVerificationResult.
         """
         try:
+            # Deterministic checks run first and are authoritative
             missing_items = self._check_completeness(request.claim_type, request.documents)
             inconsistencies = self._check_inconsistencies(request)
             warnings = self._generate_warnings(request)
+            is_complete = len(missing_items) == 0 and len(inconsistencies) == 0
+
+            # LLM reasoning layer (contextual explanation only)
+            ai_used = False
+            ai_provider = None
+            ai_model = None
+            reasoning_summary = None
+            fallback_used = False
+
+            if self._gemini and self._gemini.is_available:
+                try:
+                    prompt = (
+                        f"Claim Type: {request.claim_type}\n"
+                        f"Claimed Amount: ${request.claimed_amount:,.2f}\n"
+                        f"Incident Date: {request.incident_date}\n"
+                        f"Submitted Documents: {', '.join(d.document_type for d in request.documents) if request.documents else 'None'}\n"
+                        f"Checklist Status: {'Complete' if is_complete else 'Incomplete'}\n"
+                        f"Missing Required Documents: {', '.join(missing_items) if missing_items else 'None'}\n"
+                        f"Data Inconsistencies: {len(inconsistencies)} detected\n\n"
+                        "Provide a concise, 2-3 sentence reviewer summary explaining whether the documentation is adequate, "
+                        "what critical evidence is missing, and why it is required for this claim type. "
+                        "Do not approve or deny the claim."
+                    )
+                    system_instruction = (
+                        "You are an insurance document verification reasoning assistant. "
+                        "Your job is to provide clear, neutral contextual explanations for claims adjusters. "
+                        "Never make financial decisions or claim approvals."
+                    )
+
+                    explanation = self._gemini.generate_text(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                    )
+
+                    if explanation:
+                        ai_used = True
+                        ai_provider = "gemini"
+                        model = getattr(self._gemini, "model_name", "gemini-2.5-flash")
+                        ai_model = model if isinstance(model, str) else "gemini-2.5-flash"
+                        reasoning_summary = explanation
+                    else:
+                        fallback_used = True
+                except Exception:
+                    fallback_used = True
+            else:
+                fallback_used = True
 
             return DocumentVerificationResult(
-                complete=len(missing_items) == 0 and len(inconsistencies) == 0,
+                complete=is_complete,
                 missing_items=missing_items,
                 inconsistencies=inconsistencies,
                 warnings=warnings,
+                ai_used=ai_used,
+                ai_provider=ai_provider,
+                ai_model=ai_model,
+                reasoning_summary=reasoning_summary,
+                fallback_used=fallback_used,
             )
         except Exception as e:
             # Safe failure — return structured error, never crash
@@ -67,6 +126,8 @@ class DocumentVerificationAgent:
                 missing_items=[],
                 inconsistencies=[],
                 warnings=[f"Verification failed safely: {str(e)}"],
+                ai_used=False,
+                fallback_used=True,
             )
 
     def _check_completeness(self, claim_type: str, documents: list[DocumentData]) -> list[str]:

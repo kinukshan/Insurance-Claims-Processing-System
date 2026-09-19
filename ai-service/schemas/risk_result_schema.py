@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 
 class RecommendationType(str, Enum):
@@ -64,6 +64,11 @@ class RiskAssessmentResult(BaseModel):
         RecommendationType.PROCEED,
         description="Final recommendation: proceed or escalate",
     )
+    ai_used: bool = Field(default=False, description="Whether Gemini LLM reasoning was utilized")
+    ai_provider: Optional[str] = Field(default=None, description="LLM provider name")
+    ai_model: Optional[str] = Field(default=None, description="LLM model name used")
+    reasoning_summary: Optional[str] = Field(default=None, description="Gemini contextual risk analysis and explanation")
+    fallback_used: bool = Field(default=False, description="Whether deterministic fallback was used")
 
     @field_validator("risk_score", mode="before")
     @classmethod

@@ -1,11 +1,14 @@
 /**
  * Claims List — Component B (Member 2)
- * Staff-facing claims list with search, filter, and navigation to details.
+ * Claims list with search, filter, navigation to details,
+ * and a "Submit Claim" button for policyholders.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { getAllClaims } from '../../services/claimService';
+import ClaimCreate from './ClaimCreate';
 
 const STATUSES = [
   'Draft', 'Submitted', 'UnderReview', 'DocumentVerification',
@@ -15,12 +18,14 @@ const STATUSES = [
 
 function ClaimsList() {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
 
   const fetchClaims = useCallback(async () => {
     setLoading(true);
@@ -64,6 +69,19 @@ function ClaimsList() {
     return `status-badge status-badge--${status.toLowerCase().replace(/\s+/g, '')}`;
   };
 
+  // Show the create claim form
+  if (showCreate) {
+    return (
+      <ClaimCreate
+        onBack={() => setShowCreate(false)}
+        onCreated={() => {
+          setShowCreate(false);
+          fetchClaims();
+        }}
+      />
+    );
+  }
+
   // Loading state
   if (loading) {
     return (
@@ -100,9 +118,20 @@ function ClaimsList() {
     <div className="fade-in">
       <div className="page-header">
         <h2>Claims Management</h2>
-        <span className="btn btn--secondary btn--sm" style={{ cursor: 'default' }}>
-          {claims.length} claim{claims.length !== 1 ? 's' : ''}
-        </span>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {role === 'Policyholder' && (
+            <button
+              id="submit-claim-btn"
+              className="btn btn--primary btn--sm"
+              onClick={() => setShowCreate(true)}
+            >
+              + Submit Claim
+            </button>
+          )}
+          <span className="btn btn--secondary btn--sm" style={{ cursor: 'default' }}>
+            {claims.length} claim{claims.length !== 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
 
       {/* Search & Filter Bar */}
@@ -134,6 +163,15 @@ function ClaimsList() {
         <div className="empty-state">
           <div className="empty-icon">📋</div>
           <p>No claims found{statusFilter || searchTerm ? ' matching your filters' : ''}.</p>
+          {role === 'Policyholder' && (
+            <button
+              className="btn btn--primary"
+              onClick={() => setShowCreate(true)}
+              style={{ marginTop: '1rem' }}
+            >
+              + Submit Your First Claim
+            </button>
+          )}
         </div>
       ) : (
         /* Claims table */

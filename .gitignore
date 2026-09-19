@@ -76,3 +76,4 @@ env/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+backend/src/InsuranceClaims.Api/uploads/
