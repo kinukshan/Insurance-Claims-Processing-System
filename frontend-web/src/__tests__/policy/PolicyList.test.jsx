@@ -1,5 +1,8 @@
 // Policy component tests — Component A (Member 1)
 import React from 'react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import PolicyCard from '../../components/policy/PolicyCard'
 
 // Note: These tests require @testing-library/react and vitest to be installed.
 // They validate the component structure and behavior patterns.
@@ -133,5 +136,83 @@ describe('Policy states', () => {
   it('should represent loaded state correctly', () => {
     const state = { loading: false, error: null, policies: [{ id: '1' }] }
     expect(state.policies).toHaveLength(1)
+  })
+})
+
+// --- PolicyCard Delete Tests ---
+
+describe('PolicyCard Delete functionality', () => {
+  const draftPolicy = {
+    id: 'p-1',
+    policyNumber: 'POL-DRAFT-001',
+    status: 'Draft',
+    policyholderId: 'u-1',
+    policyTypeName: 'Auto',
+    premium: 500,
+    coverageLimit: 10000,
+    startDate: '2026-01-01',
+    expiryDate: '2027-01-01',
+  }
+
+  it('shows Delete Policy button for owner Policyholder on draft policy', () => {
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    render(<PolicyCard policy={draftPolicy} currentUser={user} onDelete={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /delete policy/i })).toBeDefined()
+  })
+
+  it('shows Delete Policy button for Underwriter and Admin on draft policy', () => {
+    const underwriter = { userId: 'u-2', role: 'Underwriter' }
+    const { unmount } = render(<PolicyCard policy={draftPolicy} currentUser={underwriter} onDelete={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /delete policy/i })).toBeDefined()
+    unmount()
+
+    const admin = { userId: 'u-3', role: 'Admin' }
+    render(<PolicyCard policy={draftPolicy} currentUser={admin} onDelete={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /delete policy/i })).toBeDefined()
+  })
+
+  it('hides Delete Policy button for ClaimsAdjuster', () => {
+    const adjuster = { userId: 'u-4', role: 'ClaimsAdjuster' }
+    render(<PolicyCard policy={draftPolicy} currentUser={adjuster} onDelete={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /delete policy/i })).toBeNull()
+  })
+
+  it('hides Delete Policy button for non-owner Policyholder', () => {
+    const nonOwner = { userId: 'u-999', role: 'Policyholder' }
+    render(<PolicyCard policy={draftPolicy} currentUser={nonOwner} onDelete={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /delete policy/i })).toBeNull()
+  })
+
+  it('hides Delete Policy button for non-draft policies', () => {
+    const activePolicy = { ...draftPolicy, status: 'Active' }
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    render(<PolicyCard policy={activePolicy} currentUser={user} onDelete={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /delete policy/i })).toBeNull()
+  })
+
+  it('confirms and calls onDelete when Delete Policy is clicked and confirmed', () => {
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    const onDelete = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<PolicyCard policy={draftPolicy} currentUser={user} onDelete={onDelete} />)
+    fireEvent.click(screen.getByRole('button', { name: /delete policy/i }))
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Delete Policy?'))
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining(draftPolicy.policyNumber))
+    expect(onDelete).toHaveBeenCalledWith(draftPolicy)
+    confirmSpy.mockRestore()
+  })
+
+  it('does not call onDelete when confirmation is rejected', () => {
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    const onDelete = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    render(<PolicyCard policy={draftPolicy} currentUser={user} onDelete={onDelete} />)
+    fireEvent.click(screen.getByRole('button', { name: /delete policy/i }))
+
+    expect(onDelete).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
   })
 })

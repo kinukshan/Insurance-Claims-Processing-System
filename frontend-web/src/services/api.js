@@ -55,9 +55,10 @@ export async function apiFetch(endpoint, options = {}) {
     } catch {
       errorBody = { error: response.statusText };
     }
-    const error = new Error(
-      errorBody?.error || errorBody?.errors?.join('; ') || `API Error: ${response.status}`
-    );
+    const detailMessage = errorBody?.error && errorBody.error !== 'An unexpected error occurred.'
+      ? errorBody.error
+      : (errorBody?.message || errorBody?.error || errorBody?.errors?.join('; ') || `API Error: ${response.status}`);
+    const error = new Error(detailMessage);
     error.status = response.status;
     error.body = errorBody;
     throw error;

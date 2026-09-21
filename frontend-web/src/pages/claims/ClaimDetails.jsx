@@ -1,14 +1,18 @@
 /**
  * Claim Details — Component B (Member 2)
- * Staff-facing claim detail view with documents, coverage validation,
- * and Document Verification Agent integration.
+ * Claim detail view with documents, coverage validation,
+ * and Document Verification Agent integration with Gemini AI reasoning.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import {
   getClaim,
+  deleteClaim,
+  withdrawClaim,
   uploadDocument,
+  deleteDocument,
   validateCoverage,
   startWorkflow,
 } from '../../services/claimService';
@@ -24,10 +28,15 @@ const DOCUMENT_TYPES = [
 function ClaimDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { role, user } = useAuth();
+
+  const isStaff = role === 'ClaimsAdjuster' || role === 'Underwriter' || role === 'Admin';
+  const isPolicyholder = role === 'Policyholder';
 
   const [claim, setClaim] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
 
   // Upload state
   const [uploadFile, setUploadFile] = useState(null);
@@ -78,8 +87,9 @@ function ClaimDetails() {
     try {
       const result = await validateCoverage(id);
       setCoverageResult(result);
+      await fetchClaim();
     } catch (err) {
-      setCoverageResult({ isValid: false, issues: [err.message] });
+      setCoverageResult({ isValid: false, isCovered: false, issues: [err.message] });
     } finally {
       setActionLoading(null);
     }
@@ -91,13 +101,73 @@ function ClaimDetails() {
     try {
       const result = await startWorkflow(id);
       setVerificationResult(result);
+      await fetchClaim();
     } catch (err) {
       setVerificationResult({
         complete: false,
         missingItems: [],
         inconsistencies: [],
         warnings: [err.message],
+        fallbackUsed: true,
       });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteClaim = async () => {
+    if (!window.confirm('Delete Claim?\nAre you sure you want to delete this draft claim?')) return;
+    setActionLoading('delete');
+    setError(null);
+    try {
+      await deleteClaim(id);
+      navigate('/claims');
+    } catch (err) {
+      if (err.status === 403 || err.message?.includes('permission')) {
+        setError('You do not have permission to delete this item.');
+      } else {
+        setError(err.message || 'Unable to delete the item. Please try again.');
+      }
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleWithdrawClaim = async () => {
+    if (!window.confirm(`Withdraw Claim?\nAre you sure you want to withdraw claim ${claim?.claimNumber}?`)) return;
+    setActionLoading('withdraw');
+    setError(null);
+    try {
+      await withdrawClaim(id);
+      setSuccessMessage('Claim has been withdrawn successfully.');
+      await fetchClaim();
+    } catch (err) {
+      if (err.status === 403 || err.message?.includes('permission')) {
+        setError('You do not have permission to delete this item.');
+      } else {
+        setError(err.message || 'Unable to delete the item. Please try again.');
+      }
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteDocument = async (doc) => {
+    if (!window.confirm(`Delete Document?\nAre you sure you want to remove ${doc.fileName}?`)) return;
+    setActionLoading(`doc-delete-${doc.id}`);
+    setError(null);
+    try {
+      await deleteDocument(id, doc.id);
+      setSuccessMessage(`Document ${doc.fileName} deleted successfully.`);
+      await fetchClaim();
+    } catch (err) {
+      if (err.status === 403 || err.message?.includes('permission')) {
+        setError('You do not have permission to delete this item.');
+      } else if (err.status === 409 || err.message?.includes('referenced') || err.message?.includes('processed')) {
+        setError('This item cannot be deleted because it is already referenced or processed.');
+      } else {
+        setError(err.message || 'Unable to delete the item. Please try again.');
+      }
     } finally {
       setActionLoading(null);
     }
@@ -165,6 +235,24 @@ function ClaimDetails() {
   if (!claim) return null;
 
   const isFinalStatus = ['Approved', 'Rejected', 'Withdrawn', 'Closed'].includes(claim.status);
+  const isDraft = claim.status === 'Draft';
+  const isOwner = Boolean(user?.userId && claim.policyHolderId && user.userId === claim.policyHolderId);
+  const canDeleteClaim = isDraft && isPolicyholder && isOwner;
+  const canWithdrawClaim = ['Submitted', 'UnderReview'].includes(claim.status) && isPolicyholder && isOwner;
+  const canDeleteDocument = !isFinalStatus && (isStaff || (isPolicyholder && isOwner));
+
+  // Normalization for snake_case / camelCase compatibility
+  const normVerif = verificationResult ? {
+    complete: verificationResult.complete ?? false,
+    missingItems: verificationResult.missingItems || verificationResult.missing_items || [],
+    inconsistencies: verificationResult.inconsistencies || [],
+    warnings: verificationResult.warnings || [],
+    aiUsed: verificationResult.aiUsed ?? verificationResult.ai_used ?? false,
+    aiProvider: verificationResult.aiProvider || verificationResult.ai_provider || null,
+    aiModel: verificationResult.aiModel || verificationResult.ai_model || null,
+    reasoningSummary: verificationResult.reasoningSummary || verificationResult.reasoning_summary || null,
+    fallbackUsed: verificationResult.fallbackUsed ?? verificationResult.fallback_used ?? false,
+  } : null;
 
   return (
     <div className="fade-in">
@@ -181,7 +269,29 @@ function ClaimDetails() {
             </span>
           </h2>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {canDeleteClaim && (
+            <button
+              id="delete-claim-btn"
+              className="btn btn--secondary"
+              style={{ color: 'var(--color-rejected)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+              onClick={handleDeleteClaim}
+              disabled={actionLoading === 'delete'}
+            >
+              {actionLoading === 'delete' ? 'Deleting…' : 'Delete Claim'}
+            </button>
+          )}
+          {canWithdrawClaim && (
+            <button
+              id="withdraw-claim-btn"
+              className="btn btn--secondary"
+              style={{ color: 'var(--color-rejected)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+              onClick={handleWithdrawClaim}
+              disabled={actionLoading === 'withdraw'}
+            >
+              {actionLoading === 'withdraw' ? 'Withdrawing…' : 'Withdraw Claim'}
+            </button>
+          )}
           <button
             id="validate-coverage-btn"
             className="btn btn--secondary"
@@ -200,6 +310,12 @@ function ClaimDetails() {
           </button>
         </div>
       </div>
+
+      {successMessage && (
+        <div className="card" style={{ borderColor: 'rgba(16, 185, 129, 0.3)', backgroundColor: 'rgba(16, 185, 129, 0.05)', marginBottom: '1.5rem' }}>
+          <p style={{ color: 'var(--color-approved)', margin: 0 }}>✅ {successMessage}</p>
+        </div>
+      )}
 
       {error && (
         <div className="card" style={{ borderColor: 'rgba(239, 68, 68, 0.3)', marginBottom: '1.5rem' }}>
@@ -245,7 +361,7 @@ function ClaimDetails() {
 
       {/* Description */}
       <div className="card" style={{ marginBottom: '2rem' }}>
-        <h3 style={{ marginBottom: '0.75rem' }}>Description</h3>
+        <h3 style={{ marginBottom: '0.75rem' }}>Incident Description</h3>
         <p style={{ color: 'var(--text-secondary)', lineHeight: '1.7' }}>{claim.description}</p>
       </div>
 
@@ -293,39 +409,92 @@ function ClaimDetails() {
         </div>
       )}
 
-      {/* Document Verification Result */}
-      {verificationResult && (
-        <div className="card" style={{
-          marginBottom: '2rem',
-          borderColor: verificationResult.complete ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)',
-        }}>
-          <h3 style={{ marginBottom: '1rem' }}>
-            {verificationResult.complete ? '✅' : '⚠️'} Document Verification Result
-          </h3>
+      {/* Role-Aware Document Verification Result */}
+      {normVerif && (
+        <div
+          id="verification-result-panel"
+          className="card"
+          style={{
+            marginBottom: '2rem',
+            borderColor: normVerif.complete ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {normVerif.complete ? '✅' : '⚠️'} Document Verification Result
+            </h3>
+            <span className={`status-badge ${normVerif.complete ? 'status-badge--approved' : 'status-badge--riskassessment'}`}>
+              {normVerif.complete ? 'Complete' : 'Action Required'}
+            </span>
+          </div>
+
           <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            {verificationResult.complete
-              ? 'All required documents are present and consistent.'
+            {normVerif.complete
+              ? 'All required documents are present and verified.'
               : 'Verification found issues that need attention.'}
           </p>
 
-          {verificationResult.missingItems?.length > 0 && (
-            <div style={{ marginBottom: '1rem' }}>
+          {/* Fallback Notice */}
+          {normVerif.fallbackUsed && (
+            <div
+              id="verification-fallback-notice"
+              style={{
+                marginBottom: '1rem',
+                padding: '0.75rem 1rem',
+                background: 'rgba(245, 158, 11, 0.1)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--color-pending)',
+                fontSize: '0.875rem',
+              }}
+            >
+              ⚠️ Fallback Rule-Based Verification was used (Gemini AI service unavailable or bypassed).
+            </div>
+          )}
+
+          {/* Policyholder Actionable Guidance */}
+          {isPolicyholder && (
+            <div
+              id="policyholder-guidance"
+              style={{
+                marginBottom: '1.25rem',
+                padding: '0.85rem 1.25rem',
+                background: normVerif.complete ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                border: `1px solid ${normVerif.complete ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', color: normVerif.complete ? '#10b981' : '#f59e0b' }}>
+                {normVerif.complete ? 'Guidance for Policyholder' : 'Action Required on Your Claim'}
+              </h4>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                {normVerif.complete
+                  ? 'All necessary documents have been verified. Your claim is proceeding to the next processing stage.'
+                  : 'Please upload the missing documents or corrected versions listed below so that our team can continue evaluating your claim.'}
+              </p>
+            </div>
+          )}
+
+          {/* Missing Documents Section */}
+          {normVerif.missingItems.length > 0 && (
+            <div id="missing-documents-section" style={{ marginBottom: '1.25rem' }}>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                Missing Documents
+                Missing Documents ({normVerif.missingItems.length})
               </label>
               <ul style={{ marginTop: '0.5rem', paddingLeft: '1.25rem', color: 'var(--color-additional-docs)' }}>
-                {verificationResult.missingItems.map((item, i) => <li key={i}>{item}</li>)}
+                {normVerif.missingItems.map((item, i) => <li key={i}>{item}</li>)}
               </ul>
             </div>
           )}
 
-          {verificationResult.inconsistencies?.length > 0 && (
-            <div style={{ marginBottom: '1rem' }}>
+          {/* Inconsistencies Section */}
+          {normVerif.inconsistencies.length > 0 && (
+            <div id="inconsistencies-section" style={{ marginBottom: '1.25rem' }}>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                Inconsistencies
+                Inconsistencies ({normVerif.inconsistencies.length})
               </label>
               <div className="document-list" style={{ marginTop: '0.5rem' }}>
-                {verificationResult.inconsistencies.map((inc, i) => (
+                {normVerif.inconsistencies.map((inc, i) => (
                   <div key={i} className="document-item" style={{
                     borderColor: inc.severity === 'error'
                       ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)',
@@ -352,14 +521,57 @@ function ClaimDetails() {
             </div>
           )}
 
-          {verificationResult.warnings?.length > 0 && (
-            <div>
+          {/* Warnings Section */}
+          {normVerif.warnings.length > 0 && (
+            <div id="verification-warnings-section" style={{ marginBottom: '1.25rem' }}>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                Warnings
+                Warnings ({normVerif.warnings.length})
               </label>
               <ul style={{ marginTop: '0.5rem', paddingLeft: '1.25rem', color: 'var(--color-pending)' }}>
-                {verificationResult.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                {normVerif.warnings.map((w, i) => <li key={i}>{w}</li>)}
               </ul>
+            </div>
+          )}
+
+          {/* Staff-Only Gemini AI Analysis Section */}
+          {isStaff && (normVerif.aiUsed || normVerif.reasoningSummary) && (
+            <div
+              id="staff-gemini-analysis"
+              style={{
+                marginTop: '1.5rem',
+                padding: '1.25rem',
+                background: 'rgba(99, 102, 241, 0.06)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#4f46e5' }}>
+                  🤖 Gemini AI Analysis (Staff Only)
+                </h4>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {normVerif.aiProvider && (
+                    <span className="user-badge adjuster" style={{ fontSize: '0.75rem' }}>
+                      Provider: {normVerif.aiProvider}
+                    </span>
+                  )}
+                  {normVerif.aiModel && (
+                    <span className="user-badge" style={{ fontSize: '0.75rem' }}>
+                      Model: {normVerif.aiModel}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {normVerif.reasoningSummary && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                    AI Reasoning & Contextual Summary
+                  </label>
+                  <p style={{ margin: '0.35rem 0 0 0', color: 'var(--text-secondary)', lineHeight: '1.6', fontSize: '0.9rem' }}>
+                    {normVerif.reasoningSummary}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -374,15 +586,28 @@ function ClaimDetails() {
         {claim.documents?.length > 0 ? (
           <div className="document-list">
             {claim.documents.map((doc) => (
-              <div key={doc.id} className="document-item" id={`doc-${doc.id}`}>
-                <div className="document-icon">📄</div>
-                <div className="document-info">
-                  <h4>{doc.fileName}</h4>
-                  <p>{doc.documentType} • {formatFileSize(doc.fileSize)} • {formatDate(doc.uploadedAt)}</p>
+              <div key={doc.id} className="document-item" id={`doc-${doc.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
+                  <div className="document-icon">📄</div>
+                  <div className="document-info">
+                    <h4>{doc.fileName}</h4>
+                    <p>{doc.documentType} • {formatFileSize(doc.fileSize)} • {formatDate(doc.uploadedAt)}</p>
+                  </div>
+                  <span className={getVerifStatusClass(doc.verificationStatus)}>
+                    {doc.verificationStatus}
+                  </span>
                 </div>
-                <span className={getVerifStatusClass(doc.verificationStatus)}>
-                  {doc.verificationStatus}
-                </span>
+                {canDeleteDocument && (
+                  <button
+                    id={`delete-doc-${doc.id}`}
+                    className="btn btn--secondary btn--sm"
+                    style={{ color: 'var(--color-rejected)', borderColor: 'rgba(239, 68, 68, 0.3)', marginLeft: '1rem' }}
+                    onClick={() => handleDeleteDocument(doc)}
+                    disabled={actionLoading === `doc-delete-${doc.id}`}
+                  >
+                    {actionLoading === `doc-delete-${doc.id}` ? 'Deleting…' : 'Delete'}
+                  </button>
+                )}
               </div>
             ))}
           </div>

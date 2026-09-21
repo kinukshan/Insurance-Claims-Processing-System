@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using InsuranceClaims.Application.Common.Exceptions;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
 using InsuranceClaims.Application.PolicyManagement.Validators;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Enums;
+using InsuranceClaims.Domain.Users;
 using InsuranceClaims.Infrastructure.Persistence;
 
 namespace InsuranceClaims.Infrastructure.Services;
@@ -59,11 +61,12 @@ public class PolicyService : IPolicyService
 
     public async Task<PolicyDto> CreateAsync(CreatePolicyDto dto)
     {
+        // Validate input
         var errors = PolicyValidator.ValidateCreate(dto);
         if (errors.Count > 0)
-            throw new ArgumentException(string.Join(" ", errors));
+            throw new ArgumentException(string.Join("; ", errors));
 
-        // Verify the policy type exists
+        // Fetch policy type to calculate premium
         var policyType = await _context.PolicyTypes.FindAsync(dto.PolicyTypeId);
         if (policyType == null)
             throw new ArgumentException($"Policy type with ID '{dto.PolicyTypeId}' not found.");
@@ -153,6 +156,10 @@ public class PolicyService : IPolicyService
 
     public async Task<bool> DeleteAsync(Guid id)
     {
+        var hasClaims = await _context.Claims.AnyAsync(c => c.PolicyId == id);
+        if (hasClaims)
+            throw new ConflictException("This policy cannot be deleted because claims already exist.");
+
         var policy = await _context.Policies.FindAsync(id);
         if (policy == null)
             return false;
@@ -161,6 +168,37 @@ public class PolicyService : IPolicyService
         if (policy.Status != PolicyStatus.Draft)
             throw new InvalidOperationException(
                 $"Cannot delete a policy with status '{policy.Status}'. Only draft policies can be deleted.");
+
+        _context.Policies.Remove(policy);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> DeleteAsync(Guid id, Guid requestingUserId, Role userRole)
+    {
+        // ClaimsAdjuster has no policy deletion permissions
+        if (userRole == Role.ClaimsAdjuster)
+            throw new UnauthorizedAccessException("Claims adjusters do not have permission to delete policies.");
+
+        var policy = await _context.Policies.FindAsync(id);
+        if (policy == null)
+            return false;
+
+        // Policyholder may delete only their own draft policy
+        if (userRole == Role.Policyholder && policy.PolicyholderId != requestingUserId)
+            throw new UnauthorizedAccessException("You do not have permission to delete this policy.");
+
+        // Underwriter and Admin are allowed for draft policies
+
+        // Only allow deletion of draft policies
+        if (policy.Status != PolicyStatus.Draft)
+            throw new InvalidOperationException(
+                $"Cannot delete a policy with status '{policy.Status}'. Only draft policies can be deleted.");
+
+        // If ANY claim references the policy: return 409 Conflict
+        var hasClaims = await _context.Claims.AnyAsync(c => c.PolicyId == id);
+        if (hasClaims)
+            throw new ConflictException("This policy cannot be deleted because claims already exist.");
 
         _context.Policies.Remove(policy);
         await _context.SaveChangesAsync();

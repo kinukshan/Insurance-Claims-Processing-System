@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
+using InsuranceClaims.Domain.Users;
 
 namespace InsuranceClaims.Api.Controllers;
 
@@ -133,15 +134,29 @@ public class PoliciesController : ControllerBase
     {
         try
         {
-            var deleted = await _policyService.DeleteAsync(id);
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var deleted = await _policyService.DeleteAsync(id, userId, role);
             if (!deleted)
                 return NotFound(new { message = $"Policy with ID '{id}' not found." });
 
             return NoContent();
         }
+        catch (UnauthorizedAccessException)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to delete this item." });
+        }
+        catch (InsuranceClaims.Application.Common.Exceptions.ConflictException ex)
+        {
+            return StatusCode(StatusCodes.Status409Conflict, new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to delete the item. Please try again." });
         }
     }
 
@@ -210,5 +225,27 @@ public class PoliciesController : ControllerBase
             return headerUserId;
 
         return Guid.Empty;
+    }
+
+    /// <summary>
+    /// Extracts the current user's role from JWT claims.
+    /// Falls back to X-User-Role header in Development only.
+    /// Defaults to Policyholder if not found or cannot be parsed.
+    /// </summary>
+    private Role GetCurrentUserRole()
+    {
+        var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value
+                     ?? User.FindFirst("role")?.Value;
+
+        if (!string.IsNullOrEmpty(roleClaim) && Enum.TryParse<Role>(roleClaim, ignoreCase: true, out var role))
+            return role;
+
+        // Dev fallback: allow X-User-Role header for testing without auth
+        if (HttpContext.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true &&
+            Request.Headers.TryGetValue("X-User-Role", out var headerValue) &&
+            Enum.TryParse<Role>(headerValue, ignoreCase: true, out var headerRole))
+            return headerRole;
+
+        return Role.Policyholder;
     }
 }

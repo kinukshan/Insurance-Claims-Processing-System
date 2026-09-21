@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 
@@ -47,24 +48,34 @@ public class DocumentVerificationClient : IDocumentVerificationClient
             var result = await response.Content.ReadFromJsonAsync<AiVerificationResponse>();
 
             return new DocumentVerificationResultDto(
-                result?.Complete ?? false,
-                result?.MissingItems ?? new List<string>(),
-                result?.Inconsistencies?.Select(i => new DocumentInconsistencyDto(
+                Complete: result?.Complete ?? false,
+                MissingItems: result?.MissingItems ?? new List<string>(),
+                Inconsistencies: result?.Inconsistencies?.Select(i => new DocumentInconsistencyDto(
                     i.Field ?? "unknown",
                     i.Description ?? "Unknown inconsistency",
                     i.Severity ?? "warning"
                 )).ToList() ?? new List<DocumentInconsistencyDto>(),
-                result?.Warnings ?? new List<string>()
+                Warnings: result?.Warnings ?? new List<string>(),
+                AiUsed: result?.AiUsed ?? false,
+                AiProvider: result?.AiProvider,
+                AiModel: result?.AiModel,
+                ReasoningSummary: result?.ReasoningSummary,
+                FallbackUsed: result?.FallbackUsed ?? false
             );
         }
         catch (Exception ex)
         {
             // Safe failure — return a structured error response instead of crashing
             return new DocumentVerificationResultDto(
-                false,
-                new List<string>(),
-                new List<DocumentInconsistencyDto>(),
-                new List<string> { $"Document verification service unavailable: {ex.Message}" }
+                Complete: false,
+                MissingItems: new List<string>(),
+                Inconsistencies: new List<DocumentInconsistencyDto>(),
+                Warnings: new List<string> { $"Document verification service unavailable: {ex.Message}" },
+                AiUsed: false,
+                AiProvider: null,
+                AiModel: null,
+                ReasoningSummary: null,
+                FallbackUsed: true
             );
         }
     }
@@ -72,16 +83,43 @@ public class DocumentVerificationClient : IDocumentVerificationClient
     // Internal deserialization models for the AI service response
     private record AiVerificationResponse
     {
+        [JsonPropertyName("complete")]
         public bool Complete { get; init; }
+
+        [JsonPropertyName("missing_items")]
         public List<string>? MissingItems { get; init; }
+
+        [JsonPropertyName("inconsistencies")]
         public List<AiInconsistency>? Inconsistencies { get; init; }
+
+        [JsonPropertyName("warnings")]
         public List<string>? Warnings { get; init; }
+
+        [JsonPropertyName("ai_used")]
+        public bool AiUsed { get; init; }
+
+        [JsonPropertyName("ai_provider")]
+        public string? AiProvider { get; init; }
+
+        [JsonPropertyName("ai_model")]
+        public string? AiModel { get; init; }
+
+        [JsonPropertyName("reasoning_summary")]
+        public string? ReasoningSummary { get; init; }
+
+        [JsonPropertyName("fallback_used")]
+        public bool FallbackUsed { get; init; }
     }
 
     private record AiInconsistency
     {
+        [JsonPropertyName("field")]
         public string? Field { get; init; }
+
+        [JsonPropertyName("description")]
         public string? Description { get; init; }
+
+        [JsonPropertyName("severity")]
         public string? Severity { get; init; }
     }
 }

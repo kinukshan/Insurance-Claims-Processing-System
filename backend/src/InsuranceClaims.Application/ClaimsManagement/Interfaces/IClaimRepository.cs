@@ -14,6 +14,7 @@ public interface IClaimRepository
     Task<Claim> AddAsync(Claim claim);
     Task<Claim> UpdateAsync(Claim claim);
     Task DeleteAsync(Claim claim);
+    Task DeleteDocumentAsync(ClaimDocument document);
     Task<bool> ExistsAsync(Guid id);
     Task<string> GenerateClaimNumberAsync();
 }

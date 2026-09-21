@@ -45,10 +45,17 @@ export async function updateClaim(id, data) {
 }
 
 /**
- * DELETE /api/claims/{id} — Withdraw a draft claim (soft delete).
+ * DELETE /api/claims/{id} — Hard delete a draft claim.
  */
 export async function deleteClaim(id) {
   return apiFetch(`/claims/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * POST /api/claims/{id}/withdraw — Withdraw a submitted or under-review claim.
+ */
+export async function withdrawClaim(id) {
+  return apiFetch(`/claims/${id}/withdraw`, { method: 'POST' });
 }
 
 /**
@@ -56,6 +63,13 @@ export async function deleteClaim(id) {
  */
 export async function submitClaim(id) {
   return apiFetch(`/claims/${id}/submit`, { method: 'POST' });
+}
+
+/**
+ * DELETE /api/claims/{claimId}/documents/{documentId} — Delete a document from a claim.
+ */
+export async function deleteDocument(claimId, documentId) {
+  return apiFetch(`/claims/${claimId}/documents/${documentId}`, { method: 'DELETE' });
 }
 
 /**

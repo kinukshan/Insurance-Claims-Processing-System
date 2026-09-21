@@ -4,7 +4,25 @@ import PolicyStatusBadge from './PolicyStatusBadge'
 /**
  * Reusable card component for displaying a policy in list views.
  */
-function PolicyCard({ policy, onSelect }) {
+function PolicyCard({ policy, onSelect, currentUser, onDelete }) {
+  const isDraft = policy.status === 'Draft'
+  const role = currentUser?.role
+  const isOwner = Boolean(currentUser?.userId && policy.policyholderId && currentUser.userId === policy.policyholderId)
+  const canDelete = isDraft && (
+    (role === 'Policyholder' && isOwner) ||
+    role === 'Underwriter' ||
+    role === 'Admin'
+  )
+
+  const handleDelete = (e) => {
+    e.stopPropagation()
+    if (window.confirm(`Delete Policy?\nAre you sure you want to delete policy ${policy.policyNumber}?`)) {
+      if (onDelete) {
+        onDelete(policy)
+      }
+    }
+  }
+
   return (
     <div
       onClick={() => onSelect && onSelect(policy)}
@@ -31,8 +49,27 @@ function PolicyCard({ policy, onSelect }) {
         <span>Premium: ${Number(policy.premium).toLocaleString()}</span>
         <span>Coverage: ${Number(policy.coverageLimit).toLocaleString()}</span>
       </div>
-      <div style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '6px' }}>
-        {new Date(policy.startDate).toLocaleDateString()} — {new Date(policy.expiryDate).toLocaleDateString()}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+        <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>
+          {new Date(policy.startDate).toLocaleDateString()} — {new Date(policy.expiryDate).toLocaleDateString()}
+        </span>
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#ef4444',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+            }}
+          >
+            Delete Policy
+          </button>
+        )}
       </div>
     </div>
   )

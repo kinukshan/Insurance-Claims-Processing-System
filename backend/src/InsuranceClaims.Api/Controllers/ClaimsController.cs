@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Domain.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -43,6 +44,28 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
+    /// Extracts the current user's role from JWT claims.
+    /// Falls back to X-User-Role header in Development only.
+    /// Defaults to Policyholder if not found or cannot be parsed.
+    /// </summary>
+    private Role GetCurrentUserRole()
+    {
+        var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value
+                     ?? User.FindFirst("role")?.Value;
+
+        if (!string.IsNullOrEmpty(roleClaim) && Enum.TryParse<Role>(roleClaim, ignoreCase: true, out var role))
+            return role;
+
+        // Dev fallback: allow X-User-Role header for testing without auth
+        if (HttpContext.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true &&
+            Request.Headers.TryGetValue("X-User-Role", out var headerValue) &&
+            Enum.TryParse<Role>(headerValue, ignoreCase: true, out var headerRole))
+            return headerRole;
+
+        return Role.Policyholder;
+    }
+
+    /// <summary>
     /// POST /api/claims — Create a new claim (starts as Draft).
     /// </summary>
     [HttpPost]
@@ -69,7 +92,8 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.GetClaimAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var result = await _claimService.GetClaimAsync(id, userId, role);
             if (result == null) return NotFound();
             return Ok(result);
         }
@@ -130,7 +154,7 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/claims/{id} — Withdraw a draft claim (soft delete).
+    /// DELETE /api/claims/{id} — Hard delete a draft claim.
     /// </summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteClaim(Guid id)
@@ -138,17 +162,54 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.DeleteClaimAsync(id, userId);
-            if (!result) return NotFound();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.DeleteClaimAsync(id, userId, role);
+            if (!result) return NotFound(new { message = $"Claim with ID '{id}' not found." });
             return NoContent();
         }
         catch (UnauthorizedAccessException)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to delete this item." });
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { error = ex.Message });
+            return BadRequest(new { error = ex.Message, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to delete the item. Please try again." });
+        }
+    }
+
+    /// <summary>
+    /// POST /api/claims/{id}/withdraw — Withdraw a submitted or under-review claim.
+    /// </summary>
+    [HttpPost("{id:guid}/withdraw")]
+    public async Task<ActionResult<ClaimResponseDto>> WithdrawClaim(Guid id)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.WithdrawClaimAsync(id, userId, role);
+            if (result == null) return NotFound(new { message = $"Claim with ID '{id}' not found." });
+            return Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { message = $"Claim with ID '{id}' not found." });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to delete this item." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to delete the item. Please try again." });
         }
     }
 
@@ -184,6 +245,7 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
 
             var dto = new UploadDocumentDto(
                 DocumentType: documentType,
@@ -193,7 +255,7 @@ public class ClaimsController : ControllerBase
                 FileStream: file.OpenReadStream()
             );
 
-            var result = await _claimService.AddDocumentAsync(id, userId, dto);
+            var result = await _claimService.AddDocumentAsync(id, userId, role, dto);
             return CreatedAtAction(nameof(GetDocuments), new { id }, result);
         }
         catch (KeyNotFoundException)
@@ -219,7 +281,8 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var results = await _claimService.GetDocumentsAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var results = await _claimService.GetDocumentsAsync(id, userId, role);
             return Ok(results);
         }
         catch (KeyNotFoundException)
@@ -233,6 +296,38 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
+    /// DELETE /api/claims/{claimId}/documents/{documentId} — Delete a document from a claim.
+    /// </summary>
+    [HttpDelete("{claimId:guid}/documents/{documentId:guid}")]
+    public async Task<IActionResult> DeleteDocument(Guid claimId, Guid documentId)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.DeleteDocumentAsync(claimId, documentId, userId, role);
+            if (!result) return NotFound(new { message = "Document not found." });
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to delete this item." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to delete the item. Please try again." });
+        }
+    }
+
+    /// <summary>
     /// POST /api/claims/{id}/validate-coverage — Validate claim against policy coverage.
     /// </summary>
     [HttpPost("{id:guid}/validate-coverage")]
@@ -241,7 +336,8 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.ValidateCoverageAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var result = await _claimService.ValidateCoverageAsync(id, userId, role);
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -263,7 +359,8 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.VerifyDocumentsAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var result = await _claimService.VerifyDocumentsAsync(id, userId, role);
             return Ok(result);
         }
         catch (KeyNotFoundException)

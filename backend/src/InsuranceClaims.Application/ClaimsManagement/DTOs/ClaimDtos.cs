@@ -103,7 +103,12 @@ public record DocumentVerificationResultDto(
     bool Complete,
     List<string> MissingItems,
     List<DocumentInconsistencyDto> Inconsistencies,
-    List<string> Warnings
+    List<string> Warnings,
+    bool AiUsed = false,
+    string? AiProvider = null,
+    string? AiModel = null,
+    string? ReasoningSummary = null,
+    bool FallbackUsed = false
 );
 
 /// <summary>

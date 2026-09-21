@@ -3,12 +3,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import PolicyCard from '../../components/policy/PolicyCard'
-import PolicyStatusBadge from '../../components/policy/PolicyStatusBadge'
-import { getPolicies } from '../../services/policyService'
+import { getPolicies, deletePolicy } from '../../services/policyService'
+import { useAuth } from '../../context/AuthContext'
 
 const STATUS_OPTIONS = ['All', 'Draft', 'Active', 'Expired', 'Lapsed', 'Cancelled']
 
 function PolicyList({ onSelectPolicy, onCreatePolicy }) {
+  const { user } = useAuth()
   const [policies, setPolicies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -27,6 +28,21 @@ function PolicyList({ onSelectPolicy, onCreatePolicy }) {
       setLoading(false)
     }
   }, [])
+
+  const handleDeletePolicy = async (policy) => {
+    try {
+      await deletePolicy(policy.id)
+      await fetchPolicies()
+    } catch (err) {
+      if (err.status === 403 || err.message?.includes('permission')) {
+        setError('You do not have permission to delete this item.')
+      } else if (err.status === 409 || err.message?.includes('claims already exist') || err.message?.includes('referenced')) {
+        setError(err.message || 'This policy cannot be deleted because claims already exist.')
+      } else {
+        setError(err.message || 'Unable to delete the item. Please try again.')
+      }
+    }
+  }
 
   useEffect(() => {
     fetchPolicies()
@@ -148,7 +164,13 @@ function PolicyList({ onSelectPolicy, onCreatePolicy }) {
       {/* Policy List */}
       {!loading &&
         filteredPolicies.map((policy) => (
-          <PolicyCard key={policy.id} policy={policy} onSelect={onSelectPolicy} />
+          <PolicyCard
+            key={policy.id}
+            policy={policy}
+            onSelect={onSelectPolicy}
+            currentUser={user}
+            onDelete={handleDeletePolicy}
+          />
         ))}
 
       {/* Summary */}

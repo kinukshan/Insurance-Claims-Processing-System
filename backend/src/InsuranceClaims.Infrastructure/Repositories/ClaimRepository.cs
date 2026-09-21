@@ -70,7 +70,33 @@ public class ClaimRepository : IClaimRepository
 
     public async Task<Claim> UpdateAsync(Claim claim)
     {
-        _context.Claims.Update(claim);
+        var entry = _context.Entry(claim);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.Claims.Attach(claim);
+            entry.State = EntityState.Modified;
+        }
+
+        if (claim.Documents != null)
+        {
+            foreach (var doc in claim.Documents)
+            {
+                var docEntry = _context.Entry(doc);
+                if (docEntry.State == EntityState.Detached)
+                {
+                    _context.ClaimDocuments.Add(doc);
+                }
+                else if (docEntry.State == EntityState.Modified)
+                {
+                    var exists = await _context.ClaimDocuments.AnyAsync(d => d.Id == doc.Id);
+                    if (!exists)
+                    {
+                        docEntry.State = EntityState.Added;
+                    }
+                }
+            }
+        }
+
         await _context.SaveChangesAsync();
         return claim;
     }
@@ -78,6 +104,12 @@ public class ClaimRepository : IClaimRepository
     public async Task DeleteAsync(Claim claim)
     {
         _context.Claims.Remove(claim);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task DeleteDocumentAsync(ClaimDocument document)
+    {
+        _context.ClaimDocuments.Remove(document);
         await _context.SaveChangesAsync();
     }
 
