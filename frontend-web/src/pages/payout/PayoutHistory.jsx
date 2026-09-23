@@ -25,10 +25,12 @@ function PayoutHistory() {
   const [sortDesc, setSortDesc] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [errorType, setErrorType] = useState(null) // 'auth' | 'forbidden' | 'network' | 'error'
 
   const loadHistory = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setErrorType(null)
     try {
       const result = await getPayoutHistory({
         page,
@@ -39,7 +41,16 @@ function PayoutHistory() {
       })
       setData(result)
     } catch (err) {
-      setError(err.message)
+      if (err.status === 401) {
+        setError('Your session has expired. Please log in again.')
+        setErrorType('auth')
+      } else if (err.status === 403) {
+        setError('You do not have permission to view payout history.')
+        setErrorType('forbidden')
+      } else {
+        setError(err.message || 'Failed to load payout history.')
+        setErrorType('error')
+      }
     } finally {
       setLoading(false)
     }
@@ -65,6 +76,9 @@ function PayoutHistory() {
     fontWeight: active ? 700 : 400,
   })
 
+  const errorBgColor = errorType === 'auth' ? '#fff3e0' : errorType === 'forbidden' ? '#fce4ec' : '#ffebee'
+  const errorTextColor = errorType === 'auth' ? '#e65100' : errorType === 'forbidden' ? '#ad1457' : '#c62828'
+
   return (
     <div style={containerStyle}>
       <h2>Payout History</h2>
@@ -84,25 +98,27 @@ function PayoutHistory() {
           {sortDesc ? '↓ Desc' : '↑ Asc'}
         </button>
 
-        <span style={{ fontSize: '0.85rem', color: '#888' }}>
-          {data.totalCount} total records
-        </span>
+        {!error && (
+          <span style={{ fontSize: '0.85rem', color: '#888' }}>
+            {data.totalCount} total records
+          </span>
+        )}
       </div>
 
       {error && (
-        <div id="payout-history-error" style={{ padding: '12px', backgroundColor: '#ffebee', color: '#c62828', borderRadius: '6px', marginBottom: '16px' }}>
+        <div id="payout-history-error" style={{ padding: '12px', backgroundColor: errorBgColor, color: errorTextColor, borderRadius: '6px', marginBottom: '16px' }}>
           {error}
         </div>
       )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading...</div>
-      ) : (
+      ) : !error ? (
         <>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={thStyle}>Claim ID</th>
+                <th style={thStyle}>Claim</th>
                 <th style={thStyle}>Final Payout</th>
                 <th style={thStyle}>Status</th>
                 <th style={thStyle}>Created</th>
@@ -114,7 +130,9 @@ function PayoutHistory() {
               ) : (
                 data.items.map((p) => (
                   <tr key={p.id}>
-                    <td style={{ ...tdStyle, fontSize: '0.8rem', fontFamily: 'monospace' }}>{p.claimId.substring(0, 8)}...</td>
+                    <td style={{ ...tdStyle, fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                      {p.claimNumber || p.claimId.substring(0, 8) + '...'}
+                    </td>
                     <td style={tdStyle}>{fmt(p.finalPayout)}</td>
                     <td style={tdStyle}><PayoutStatusBadge status={p.statusDisplay} /></td>
                     <td style={{ ...tdStyle, fontSize: '0.85rem', color: '#666' }}>{fmtDate(p.createdAt)}</td>
@@ -134,7 +152,7 @@ function PayoutHistory() {
             </div>
           )}
         </>
-      )}
+      ) : null}
     </div>
   )
 }

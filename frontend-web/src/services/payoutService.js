@@ -6,51 +6,28 @@
  * not from this client.
  */
 
-import { API_BASE_URL } from './api';
-
-const PAYOUTS_URL = `${API_BASE_URL}/payouts`;
-
-/**
- * Helper for making API requests with JSON handling.
- */
-async function apiRequest(url, options = {}) {
-  const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      // TODO: Add JWT Authorization header once auth is wired
-    },
-    ...options,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `API Error: ${response.status}`);
-  }
-
-  if (response.status === 204) return null;
-  return response.json();
-}
+import { apiFetch } from './api';
 
 /**
  * Calculate and create a payout proposal for a claim.
  * No client-supplied financial inputs — all from backend.
  */
 export async function calculatePayout(claimId) {
-  return apiRequest(`${PAYOUTS_URL}/calculate/${claimId}`, { method: 'POST' });
+  return apiFetch(`/payouts/calculate/${claimId}`, { method: 'POST' });
 }
 
 /**
  * Get a payout by its ID.
  */
 export async function getPayoutById(id) {
-  return apiRequest(`${PAYOUTS_URL}/${id}`);
+  return apiFetch(`/payouts/${id}`);
 }
 
 /**
  * Get payout for a specific claim.
  */
 export async function getPayoutByClaim(claimId) {
-  return apiRequest(`${PAYOUTS_URL}/claim/${claimId}`);
+  return apiFetch(`/payouts/claim/${claimId}`);
 }
 
 /**
@@ -62,14 +39,14 @@ export async function getPayoutHistory({ page = 1, pageSize = 20, status, sortBy
   if (sortBy) params.set('sortBy', sortBy);
   if (sortDescending !== undefined) params.set('sortDescending', sortDescending);
 
-  return apiRequest(`${PAYOUTS_URL}/history?${params}`);
+  return apiFetch(`/payouts/history?${params}`);
 }
 
 /**
  * Approve a payout. Reviewer identity from server auth context.
  */
 export async function approvePayout(id, comments = '') {
-  return apiRequest(`${PAYOUTS_URL}/${id}/approve`, {
+  return apiFetch(`/payouts/${id}/approve`, {
     method: 'POST',
     body: JSON.stringify({ comments }),
   });
@@ -79,7 +56,7 @@ export async function approvePayout(id, comments = '') {
  * Reject a payout. Reviewer identity from server auth context.
  */
 export async function rejectPayout(id, comments = '') {
-  return apiRequest(`${PAYOUTS_URL}/${id}/reject`, {
+  return apiFetch(`/payouts/${id}/reject`, {
     method: 'POST',
     body: JSON.stringify({ comments }),
   });
@@ -89,7 +66,7 @@ export async function rejectPayout(id, comments = '') {
  * Request revision on a payout. Reviewer identity from server auth context.
  */
 export async function requestRevision(id, comments = '') {
-  return apiRequest(`${PAYOUTS_URL}/${id}/request-revision`, {
+  return apiFetch(`/payouts/${id}/request-revision`, {
     method: 'POST',
     body: JSON.stringify({ comments }),
   });
@@ -99,19 +76,19 @@ export async function requestRevision(id, comments = '') {
  * Execute an approved payout.
  */
 export async function executePayout(id) {
-  return apiRequest(`${PAYOUTS_URL}/${id}/execute`, { method: 'POST' });
+  return apiFetch(`/payouts/${id}/execute`, { method: 'POST' });
 }
 
 /**
  * Update a draft payout (recalculate from current backend data).
  */
 export async function updatePayout(id) {
-  return apiRequest(`${PAYOUTS_URL}/${id}`, { method: 'PUT' });
+  return apiFetch(`/payouts/${id}`, { method: 'PUT' });
 }
 
 /**
  * Delete a draft/invalid payout.
  */
 export async function deletePayout(id) {
-  return apiRequest(`${PAYOUTS_URL}/${id}`, { method: 'DELETE' });
+  return apiFetch(`/payouts/${id}`, { method: 'DELETE' });
 }

@@ -90,21 +90,30 @@ public class PayoutService : IPayoutService
 
         await _repository.AddAsync(payout);
 
-        return MapToDto(payout);
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(claimId);
+        dto.ValidationResult = MapValidationResult(validationResult);
+        return dto;
     }
 
     /// <inheritdoc />
     public async Task<PayoutDto?> GetByIdAsync(Guid id)
     {
         var payout = await _repository.GetByIdAsync(id);
-        return payout is null ? null : MapToDto(payout);
+        if (payout is null) return null;
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(payout.ClaimId);
+        return dto;
     }
 
     /// <inheritdoc />
     public async Task<PayoutDto?> GetByClaimIdAsync(Guid claimId)
     {
         var payout = await _repository.GetByClaimIdAsync(claimId);
-        return payout is null ? null : MapToDto(payout);
+        if (payout is null) return null;
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(claimId);
+        return dto;
     }
 
     /// <inheritdoc />
@@ -113,9 +122,17 @@ public class PayoutService : IPayoutService
         var (items, totalCount) = await _repository.GetPagedAsync(
             query.Page, query.PageSize, query.StatusFilter, query.SortBy, query.SortDescending);
 
+        var dtos = new List<PayoutDto>(items.Count);
+        foreach (var item in items)
+        {
+            var dto = MapToDto(item);
+            dto.ClaimNumber = await GetClaimNumberAsync(item.ClaimId);
+            dtos.Add(dto);
+        }
+
         return new PaginatedResult<PayoutDto>
         {
-            Items = items.Select(MapToDto).ToList(),
+            Items = dtos,
             TotalCount = totalCount,
             Page = query.Page,
             PageSize = query.PageSize
@@ -151,7 +168,9 @@ public class PayoutService : IPayoutService
         }
 
         await _repository.UpdateAsync(payout);
-        return MapToDto(payout);
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(payout.ClaimId);
+        return dto;
     }
 
     /// <inheritdoc />
@@ -161,30 +180,12 @@ public class PayoutService : IPayoutService
         var payout = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException($"Payout '{id}' not found.");
 
-        if (!Payout.IsValidTransition(payout.Status, PayoutStatus.Approved))
-        {
-            throw new InvalidOperationException(
-                $"Cannot approve payout from status '{payout.Status}'. Must be PendingApproval.");
-        }
+        payout.Approve(reviewerId, reviewerName, comments);
 
-        payout.Status = PayoutStatus.Approved;
-        payout.ApprovedBy = reviewerName;
-        payout.ApprovalTimestamp = DateTime.UtcNow;
-
-        var approval = new PayoutApproval
-        {
-            Id = Guid.NewGuid(),
-            PayoutId = payout.Id,
-            ReviewerId = reviewerId,
-            ReviewerName = reviewerName,
-            Decision = ApprovalDecisionType.Approved,
-            Comments = comments,
-            DecisionTimestamp = DateTime.UtcNow
-        };
-
-        payout.Approvals.Add(approval);
         await _repository.UpdateAsync(payout);
-        return MapToDto(payout);
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(payout.ClaimId);
+        return dto;
     }
 
     /// <inheritdoc />
@@ -194,28 +195,12 @@ public class PayoutService : IPayoutService
         var payout = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException($"Payout '{id}' not found.");
 
-        if (!Payout.IsValidTransition(payout.Status, PayoutStatus.Rejected))
-        {
-            throw new InvalidOperationException(
-                $"Cannot reject payout from status '{payout.Status}'. Must be PendingApproval.");
-        }
+        payout.Reject(reviewerId, reviewerName, comments);
 
-        payout.Status = PayoutStatus.Rejected;
-
-        var approval = new PayoutApproval
-        {
-            Id = Guid.NewGuid(),
-            PayoutId = payout.Id,
-            ReviewerId = reviewerId,
-            ReviewerName = reviewerName,
-            Decision = ApprovalDecisionType.Rejected,
-            Comments = comments,
-            DecisionTimestamp = DateTime.UtcNow
-        };
-
-        payout.Approvals.Add(approval);
         await _repository.UpdateAsync(payout);
-        return MapToDto(payout);
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(payout.ClaimId);
+        return dto;
     }
 
     /// <inheritdoc />
@@ -225,28 +210,12 @@ public class PayoutService : IPayoutService
         var payout = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException($"Payout '{id}' not found.");
 
-        if (!Payout.IsValidTransition(payout.Status, PayoutStatus.RevisionRequested))
-        {
-            throw new InvalidOperationException(
-                $"Cannot request revision from status '{payout.Status}'. Must be PendingApproval.");
-        }
+        payout.RequestRevision(reviewerId, reviewerName, comments);
 
-        payout.Status = PayoutStatus.RevisionRequested;
-
-        var approval = new PayoutApproval
-        {
-            Id = Guid.NewGuid(),
-            PayoutId = payout.Id,
-            ReviewerId = reviewerId,
-            ReviewerName = reviewerName,
-            Decision = ApprovalDecisionType.RevisionRequested,
-            Comments = comments,
-            DecisionTimestamp = DateTime.UtcNow
-        };
-
-        payout.Approvals.Add(approval);
         await _repository.UpdateAsync(payout);
-        return MapToDto(payout);
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(payout.ClaimId);
+        return dto;
     }
 
     /// <inheritdoc />
@@ -269,7 +238,9 @@ public class PayoutService : IPayoutService
         // The controller or an orchestrator will call IPaymentGateway after this.
         // This method only transitions the state to Processing.
 
-        return MapToDto(payout);
+        var dto = MapToDto(payout);
+        dto.ClaimNumber = await GetClaimNumberAsync(payout.ClaimId);
+        return dto;
     }
 
     /// <inheritdoc />
@@ -317,5 +288,35 @@ public class PayoutService : IPayoutService
                 DecisionTimestamp = a.DecisionTimestamp
             }).ToList()
         };
+    }
+
+    private static PayoutValidationResultDto MapValidationResult(PayoutValidationResult result)
+    {
+        return new PayoutValidationResultDto
+        {
+            Valid = result.Valid,
+            Violations = result.Violations,
+            RequiresHumanApproval = result.RequiresHumanApproval,
+            AgentId = result.AgentId,
+            Summary = result.Summary,
+            AiUsed = result.AiUsed,
+            AiProvider = result.AiProvider,
+            AiModel = result.AiModel,
+            ReasoningSummary = result.ReasoningSummary,
+            FallbackUsed = result.FallbackUsed
+        };
+    }
+
+    /// <summary>
+    /// Attempt to resolve the claim number for display purposes.
+    /// Returns null if the claim is not found (non-critical).
+    /// </summary>
+    private async Task<string?> GetClaimNumberAsync(Guid claimId)
+    {
+        // Use the context provider to check if claim exists, but we need
+        // the claim number which the context doesn't expose.
+        // For now, we'll return null — the frontend uses ClaimId as fallback.
+        // A future improvement could add ClaimNumber to PayoutContext.
+        return null;
     }
 }

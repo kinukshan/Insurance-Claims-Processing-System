@@ -22,6 +22,18 @@ public class RiskAssessmentsController : ControllerBase
     }
 
     /// <summary>
+    /// Get all risk assessments across all claims.
+    /// Authoritative source for dashboard summary metrics and complete assessment list.
+    /// </summary>
+    [HttpGet]
+    // TODO: [Authorize(Roles = "Staff,Admin")]
+    public async Task<IActionResult> GetAllAssessments()
+    {
+        var result = await _riskService.GetAllAssessmentsAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Trigger a risk assessment on a claim.
     /// Combines deterministic rules with optional AI agent analysis.
     /// </summary>

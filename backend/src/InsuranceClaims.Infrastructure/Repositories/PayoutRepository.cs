@@ -84,7 +84,29 @@ public class PayoutRepository : IPayoutRepository
 
     public async Task UpdateAsync(Payout payout)
     {
-        _context.Payouts.Update(payout);
+        var entry = _context.Entry(payout);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.Payouts.Attach(payout);
+            entry.State = EntityState.Modified;
+        }
+        else if (entry.State == EntityState.Unchanged)
+        {
+            entry.State = EntityState.Modified;
+        }
+
+        // For child approvals: PayoutApprovals are write-once audit logs and are never modified in-place.
+        // If an approval was newly added to the aggregate, ensure its entity state is Added, not Modified.
+        // This ensures EF Core generates INSERT INTO PayoutApprovals rather than UPDATE PayoutApprovals.
+        foreach (var approval in payout.Approvals)
+        {
+            var approvalEntry = _context.Entry(approval);
+            if (approvalEntry.State == EntityState.Detached || approvalEntry.State == EntityState.Modified)
+            {
+                approvalEntry.State = EntityState.Added;
+            }
+        }
+
         await _context.SaveChangesAsync();
     }
 

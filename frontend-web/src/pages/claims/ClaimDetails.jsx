@@ -16,6 +16,13 @@ import {
   validateCoverage,
   startWorkflow,
 } from '../../services/claimService';
+import {
+  assessClaim,
+  getAssessment,
+} from '../../services/riskService';
+import {
+  getPayoutByClaim,
+} from '../../services/payoutService';
 
 const DOCUMENT_TYPES = [
   'Police Report', 'Photos of Damage', 'Repair Estimate', 'Driver License',
@@ -43,9 +50,12 @@ function ClaimDetails() {
   const [uploadDocType, setUploadDocType] = useState('Supporting Document');
   const [uploading, setUploading] = useState(false);
 
-  // Verification / Coverage state
+  // Verification / Coverage / Risk / Payout state
   const [verificationResult, setVerificationResult] = useState(null);
+  const [documentsChangedSinceVerification, setDocumentsChangedSinceVerification] = useState(false);
   const [coverageResult, setCoverageResult] = useState(null);
+  const [riskResult, setRiskResult] = useState(null);
+  const [existingPayout, setExistingPayout] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
   const fetchClaim = useCallback(async () => {
@@ -54,12 +64,36 @@ function ClaimDetails() {
     try {
       const data = await getClaim(id);
       setClaim(data);
+      if (isStaff) {
+        try {
+          const existingRisk = await getAssessment(id);
+          if (existingRisk) {
+            setRiskResult(existingRisk);
+          }
+        } catch {
+          // No assessment or not found yet
+        }
+
+        try {
+          const existingPayoutData = await getPayoutByClaim(id);
+          setExistingPayout(existingPayoutData || null);
+        } catch (payoutErr) {
+          if (payoutErr.status === 404) {
+            // Expected: no payout exists yet for this claim
+            setExistingPayout(null);
+          } else {
+            // 401/403/500/network failures: treat as real errors
+            setError(payoutErr.message || 'Failed to check existing payout.');
+            setExistingPayout(null);
+          }
+        }
+      }
     } catch (err) {
       setError(err.message || 'Failed to load claim');
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, isStaff]);
 
   useEffect(() => {
     fetchClaim();
@@ -69,10 +103,15 @@ function ClaimDetails() {
     e.preventDefault();
     if (!uploadFile) return;
     setUploading(true);
+    setError(null);
     try {
       await uploadDocument(id, uploadFile, uploadDocType);
       setUploadFile(null);
       setUploadDocType('Supporting Document');
+      if (verificationResult || documentsChangedSinceVerification) {
+        setVerificationResult(null);
+        setDocumentsChangedSinceVerification(true);
+      }
       await fetchClaim();
     } catch (err) {
       setError(err.message);
@@ -97,19 +136,31 @@ function ClaimDetails() {
 
   const handleStartWorkflow = async () => {
     setActionLoading('workflow');
-    setVerificationResult(null);
+    setError(null);
     try {
       const result = await startWorkflow(id);
       setVerificationResult(result);
+      setDocumentsChangedSinceVerification(false);
       await fetchClaim();
     } catch (err) {
-      setVerificationResult({
-        complete: false,
-        missingItems: [],
-        inconsistencies: [],
-        warnings: [err.message],
-        fallbackUsed: true,
-      });
+      setError(err.message || 'Document verification failed.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRunRiskAssessment = async () => {
+    if (!normVerif?.complete || documentsChangedSinceVerification || actionLoading === 'risk') return;
+    setActionLoading('risk');
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const result = await assessClaim(id, { includeAiAnalysis: true });
+      setRiskResult(result);
+      setSuccessMessage('Risk assessment completed successfully.');
+      await fetchClaim();
+    } catch (err) {
+      setError(err.message || 'Risk assessment failed.');
     } finally {
       setActionLoading(null);
     }
@@ -159,6 +210,10 @@ function ClaimDetails() {
     try {
       await deleteDocument(id, doc.id);
       setSuccessMessage(`Document ${doc.fileName} deleted successfully.`);
+      if (verificationResult || documentsChangedSinceVerification) {
+        setVerificationResult(null);
+        setDocumentsChangedSinceVerification(true);
+      }
       await fetchClaim();
     } catch (err) {
       if (err.status === 403 || err.message?.includes('permission')) {
@@ -254,6 +309,29 @@ function ClaimDetails() {
     fallbackUsed: verificationResult.fallbackUsed ?? verificationResult.fallback_used ?? false,
   } : null;
 
+  const isRiskReady = Boolean(normVerif && normVerif.complete && !documentsChangedSinceVerification);
+  const hasExistingPayout = Boolean(existingPayout);
+  const isDocVerifComplete = Boolean(normVerif && normVerif.complete && !documentsChangedSinceVerification);
+  const hasRiskAssessment = Boolean(riskResult);
+  const isBlockedStatus = ['Draft', 'Withdrawn', 'Rejected', 'Closed'].includes(claim.status);
+  const isPayoutReady = !isBlockedStatus && isDocVerifComplete && hasRiskAssessment;
+
+  let payoutTooltip = '';
+  if (isBlockedStatus) {
+    payoutTooltip = `Cannot prepare payout for a ${claim.status.toLowerCase()} claim.`;
+  } else if (!isDocVerifComplete) {
+    payoutTooltip = 'Complete Document Verification before preparing payout.';
+  } else if (!hasRiskAssessment) {
+    payoutTooltip = 'Complete Risk Assessment before preparing payout.';
+  } else {
+    payoutTooltip = 'Prepare payout proposal';
+  }
+
+  const handlePreparePayout = () => {
+    if (!isPayoutReady) return;
+    navigate(`/payouts/calculate?claimId=${claim.id}`);
+  };
+
   return (
     <div className="fade-in">
       {/* Page Header */}
@@ -308,6 +386,39 @@ function ClaimDetails() {
           >
             {actionLoading === 'workflow' ? 'Verifying…' : '🤖 Verify Documents'}
           </button>
+          {isStaff && (
+            <button
+              id="run-risk-assessment-btn"
+              className="btn btn--primary"
+              onClick={handleRunRiskAssessment}
+              disabled={!isRiskReady || actionLoading === 'risk'}
+              title={!isRiskReady ? 'Document verification must be completed first' : 'Run Risk Assessment'}
+            >
+              {actionLoading === 'risk' ? 'Assessing Risk…' : '🛡️ Run Risk Assessment'}
+            </button>
+          )}
+          {isStaff && (
+            hasExistingPayout ? (
+              <button
+                id="view-payout-btn"
+                className="btn btn--secondary"
+                onClick={() => navigate(`/payouts/calculate?claimId=${claim.id}`)}
+                title="View existing payout proposal"
+              >
+                💰 View Payout
+              </button>
+            ) : (
+              <button
+                id="prepare-payout-btn"
+                className="btn btn--primary"
+                onClick={handlePreparePayout}
+                disabled={!isPayoutReady}
+                title={payoutTooltip}
+              >
+                💰 Prepare Payout
+              </button>
+            )
+          )}
         </div>
       </div>
 
@@ -406,6 +517,31 @@ function ClaimDetails() {
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Re-verification Required Notice */}
+      {documentsChangedSinceVerification && (
+        <div
+          id="reverification-notice"
+          className="card"
+          style={{
+            marginBottom: '2rem',
+            borderColor: 'rgba(245, 158, 11, 0.4)',
+            backgroundColor: 'rgba(245, 158, 11, 0.05)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#d97706' }}>
+              ⚠️ Documents Changed
+            </h3>
+            <span className="status-badge status-badge--pending" id="reverification-badge">
+              Needs Re-Verification
+            </span>
+          </div>
+          <p style={{ color: 'var(--text-secondary)', margin: 0, lineHeight: '1.6' }}>
+            The claim documents have changed since the last verification. Run document verification again.
+          </p>
         </div>
       )}
 
@@ -574,6 +710,118 @@ function ClaimDetails() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Risk Assessment Result Panel */}
+      {isStaff && riskResult && (
+        <div
+          id="risk-assessment-result-panel"
+          className="card"
+          style={{
+            marginBottom: '2rem',
+            borderColor: riskResult.riskLevelDisplay === 'High' || riskResult.riskLevelDisplay === 'Critical'
+              ? 'rgba(239, 68, 68, 0.4)'
+              : 'rgba(59, 130, 246, 0.4)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              🛡️ Risk Assessment Result
+            </h3>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <span className={`status-badge status-badge--${(riskResult.riskLevelDisplay || '').toLowerCase()}`}>
+                {riskResult.riskLevelDisplay || 'Assessed'}
+              </span>
+              <span className={`status-badge ${riskResult.recommendationDisplay === 'Escalate' ? 'under-investigation' : 'resolved'}`}>
+                {riskResult.recommendationDisplay}
+              </span>
+            </div>
+          </div>
+
+          <div className="detail-grid" style={{ marginBottom: '1rem' }}>
+            <div className="detail-item">
+              <label>Risk Score</label>
+              <div className="value" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-accent)' }}>
+                {riskResult.riskScore != null ? `${Number(riskResult.riskScore).toFixed(1)}/100` : '—'}
+              </div>
+            </div>
+            <div className="detail-item">
+              <label>Risk Level</label>
+              <div className="value">{riskResult.riskLevelDisplay ?? '—'}</div>
+            </div>
+            <div className="detail-item">
+              <label>Recommendation</label>
+              <div className="value">{riskResult.recommendationDisplay ?? '—'}</div>
+            </div>
+            <div className="detail-item">
+              <label>Fraud Flags</label>
+              <div className="value">{riskResult.fraudFlagCount ?? riskResult.flags?.length ?? 0}</div>
+            </div>
+          </div>
+
+          {/* AI Reasoning / Contextual Explanation */}
+          {(riskResult.reasoningSummary || (riskResult.aiUsed && riskResult.summary) || (riskResult.summary?.includes('AI Context:'))) && (
+            <div
+              id="risk-ai-reasoning"
+              style={{
+                marginBottom: '1rem',
+                padding: '0.85rem 1.25rem',
+                background: 'rgba(59, 130, 246, 0.08)',
+                border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                🤖 Gemini AI Contextual Explanation
+                {riskResult.aiModel && (
+                  <span style={{ fontSize: '0.75rem', fontWeight: 400, opacity: 0.8 }}>({riskResult.aiModel})</span>
+                )}
+              </h4>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                {riskResult.reasoningSummary || (riskResult.summary?.includes('AI Context:') ? riskResult.summary.split('AI Context:')[1].trim() : riskResult.summary)}
+              </p>
+            </div>
+          )}
+
+          {/* Fallback Notice */}
+          {riskResult.fallbackUsed && (
+            <div
+              id="risk-fallback-notice"
+              style={{
+                marginBottom: '1rem',
+                padding: '0.75rem 1rem',
+                background: 'rgba(245, 158, 11, 0.1)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--color-pending)',
+                fontSize: '0.875rem',
+              }}
+            >
+              ⚠️ Fallback Rule-Based Assessment was used (Gemini AI service unavailable, timed out, or quota exhausted). Deterministic rules remain 100% authoritative.
+            </div>
+          )}
+
+          {/* Fraud Flags List */}
+          {riskResult.flags && riskResult.flags.length > 0 && (
+            <div id="risk-flags-section" style={{ marginTop: '1rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                Fraud Flags ({riskResult.flags.length})
+              </label>
+              <ul style={{ marginTop: '0.5rem', paddingLeft: '1.25rem', color: 'var(--color-rejected)' }}>
+                {riskResult.flags.map((flag, i) => (
+                  <li key={flag.id || i} style={{ marginBottom: '0.25rem' }}>
+                    <strong>{flag.flagTypeDisplay || flag.flagType}</strong>: {flag.description} ({flag.severityDisplay || flag.severity})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Assessment Metadata */}
+          <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Assessed: {formatDate(riskResult.assessmentTimestamp)} | Assessor: {riskResult.assessorType === 1 ? 'AI-Assisted' : riskResult.assessorType === 2 ? 'Manual' : 'System Rules'}
+          </div>
         </div>
       )}
 

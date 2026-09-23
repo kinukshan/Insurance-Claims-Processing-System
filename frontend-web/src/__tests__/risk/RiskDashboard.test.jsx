@@ -13,6 +13,7 @@ import FraudFlagList from '../../components/risk/FraudFlagList'
 // ── Mock riskService ─────────────────────────────────────────
 
 vi.mock('../../services/riskService', () => ({
+  getAllAssessments: vi.fn(),
   getFlaggedClaims: vi.fn(),
   getAssessment: vi.fn(),
   getFlags: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock('../../services/riskService', () => ({
   getPolicyholderStatus: vi.fn(),
 }))
 
-import { getFlaggedClaims, escalateClaim } from '../../services/riskService'
+import { getAllAssessments, getFlaggedClaims, escalateClaim } from '../../services/riskService'
 
 // ── Sample test data ─────────────────────────────────────────
 
@@ -87,14 +88,14 @@ describe('RiskDashboard', () => {
   })
 
   it('renders loading state initially', () => {
-    getFlaggedClaims.mockReturnValue(new Promise(() => {})) // never resolves
+    getAllAssessments.mockReturnValue(new Promise(() => {})) // never resolves
     render(<RiskDashboard />)
     expect(screen.getByText('Risk Assessment Dashboard')).toBeInTheDocument()
     expect(document.querySelector('.spinner')).toBeInTheDocument()
   })
 
   it('renders dashboard with data', async () => {
-    getFlaggedClaims.mockResolvedValue(sampleAssessments)
+    getAllAssessments.mockResolvedValue(sampleAssessments)
     render(<RiskDashboard />)
 
     await waitFor(() => {
@@ -112,7 +113,7 @@ describe('RiskDashboard', () => {
   })
 
   it('renders error state with retry button', async () => {
-    getFlaggedClaims.mockRejectedValue(new Error('Network failure'))
+    getAllAssessments.mockRejectedValue(new Error('Network failure'))
     render(<RiskDashboard />)
 
     await waitFor(() => {
@@ -123,7 +124,7 @@ describe('RiskDashboard', () => {
   })
 
   it('renders empty state when no assessments', async () => {
-    getFlaggedClaims.mockResolvedValue([])
+    getAllAssessments.mockResolvedValue([])
     render(<RiskDashboard />)
 
     await waitFor(() => {
@@ -132,7 +133,7 @@ describe('RiskDashboard', () => {
   })
 
   it('search filter works', async () => {
-    getFlaggedClaims.mockResolvedValue(sampleAssessments)
+    getAllAssessments.mockResolvedValue(sampleAssessments)
     render(<RiskDashboard />)
 
     await waitFor(() => {
@@ -147,8 +148,28 @@ describe('RiskDashboard', () => {
     expect(rows.length).toBe(1)
   })
 
+  it('search filter works by claimNumber', async () => {
+    const assessmentsWithNumber = [
+      { ...sampleAssessments[0], claimNumber: 'CLM-20260921-0001' },
+      { ...sampleAssessments[1], claimNumber: 'CLM-20260921-0002' },
+    ]
+    getAllAssessments.mockResolvedValue(assessmentsWithNumber)
+    render(<RiskDashboard />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CLM-20260921-0001')).toBeInTheDocument()
+    })
+
+    const searchInput = screen.getByPlaceholderText('Search by Claim ID...')
+    fireEvent.change(searchInput, { target: { value: '0002' } })
+
+    const rows = document.querySelectorAll('.risk-table tbody tr')
+    expect(rows.length).toBe(1)
+    expect(screen.getByText('CLM-20260921-0002')).toBeInTheDocument()
+  })
+
   it('clear button resets search', async () => {
-    getFlaggedClaims.mockResolvedValue(sampleAssessments)
+    getAllAssessments.mockResolvedValue(sampleAssessments)
     render(<RiskDashboard />)
 
     await waitFor(() => {
@@ -166,7 +187,7 @@ describe('RiskDashboard', () => {
   })
 
   it('retry button reloads data after error', async () => {
-    getFlaggedClaims.mockRejectedValueOnce(new Error('Server error'))
+    getAllAssessments.mockRejectedValueOnce(new Error('Server error'))
     render(<RiskDashboard />)
 
     await waitFor(() => {
@@ -174,7 +195,7 @@ describe('RiskDashboard', () => {
     })
 
     // Now mock success
-    getFlaggedClaims.mockResolvedValue(sampleAssessments)
+    getAllAssessments.mockResolvedValue(sampleAssessments)
     fireEvent.click(screen.getByText('Retry'))
 
     await waitFor(() => {

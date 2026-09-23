@@ -187,7 +187,7 @@ function App() {
           <Route
             path="/payouts"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute roles={['ClaimsAdjuster', 'Underwriter', 'Admin']}>
                 <PayoutHistory />
               </ProtectedRoute>
             }

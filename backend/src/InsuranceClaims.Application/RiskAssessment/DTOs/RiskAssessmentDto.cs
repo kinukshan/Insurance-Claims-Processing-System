@@ -9,6 +9,7 @@ public class RiskAssessmentDto
 {
     public Guid Id { get; set; }
     public Guid ClaimId { get; set; }
+    public string? ClaimNumber { get; set; }
     public decimal RiskScore { get; set; }
     public RiskLevel RiskLevel { get; set; }
     public string RiskLevelDisplay => RiskLevel.ToString();
@@ -19,6 +20,12 @@ public class RiskAssessmentDto
     public string Summary { get; set; } = string.Empty;
     public int FraudFlagCount { get; set; }
     public bool HasFraudCase { get; set; }
+    public bool AiUsed { get; set; }
+    public string? AiProvider { get; set; }
+    public string? AiModel { get; set; }
+    public string? ReasoningSummary { get; set; }
+    public bool FallbackUsed { get; set; }
+    public List<FraudFlagDto> Flags { get; set; } = new();
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
@@ -39,6 +46,8 @@ public class RiskAssessmentDto
             Summary = entity.Summary,
             FraudFlagCount = entity.FraudFlags?.Count ?? 0,
             HasFraudCase = entity.FraudCase != null,
+            AiUsed = entity.AssessorType == AssessorType.AI,
+            Flags = entity.FraudFlags?.Select(FraudFlagDto.FromEntity).ToList() ?? new List<FraudFlagDto>(),
             CreatedAt = entity.CreatedAt,
             UpdatedAt = entity.UpdatedAt
         };

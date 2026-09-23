@@ -73,6 +73,16 @@ public class RiskAssessmentRepository : IRiskAssessmentRepository
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<Domain.RiskAssessment.RiskAssessment>> GetAllAsync()
+    {
+        return await _dbContext.RiskAssessments
+            .Include(r => r.FraudFlags)
+            .Include(r => r.FraudCase)
+            .OrderByDescending(r => r.AssessmentTimestamp)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<FraudCase>> GetFraudCasesByPolicyholderAsync(Guid policyholderId)
     {
         return await _dbContext.FraudCases

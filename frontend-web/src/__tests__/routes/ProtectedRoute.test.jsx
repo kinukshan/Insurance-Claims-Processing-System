@@ -48,4 +48,49 @@ describe('ProtectedRoute access control logic', () => {
     })
     expect(dest).toBe('/dashboard')
   })
+
+  // ── Payout Calculation Route (/payouts/calculate) Protection Tests ──
+
+  const PAYOUT_CALCULATE_ROLES = ['ClaimsAdjuster', 'Underwriter', 'Admin']
+
+  it('16. payout calculation route remains protected by staff roles (ClaimsAdjuster, Underwriter, Admin)', () => {
+    // ClaimsAdjuster
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })).toBeNull()
+
+    // Underwriter
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })).toBeNull()
+
+    // Admin
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })).toBeNull()
+  })
+
+  it('17. Policyholder cannot manually access payout calculation route and is redirected to /dashboard', () => {
+    const dest = getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })
+    expect(dest).toBe('/dashboard')
+  })
+
+  it('unauthenticated user attempting to access payout calculation route is redirected to /login', () => {
+    const dest = getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })
+    expect(dest).toBe('/login')
+  })
 })

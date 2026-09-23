@@ -10,6 +10,9 @@ public class PayoutDto
     public Guid Id { get; set; }
     public Guid ClaimId { get; set; }
 
+    /// <summary>Claim number for display (populated when available).</summary>
+    public string? ClaimNumber { get; set; }
+
     // ── Calculation breakdown ────────────────────────────────────────
     public decimal ApprovedClaimAmount { get; set; }
     public decimal CoverageLimit { get; set; }
@@ -34,6 +37,9 @@ public class PayoutDto
 
     // ── Approvals history ────────────────────────────────────────────
     public List<PayoutApprovalDto> Approvals { get; set; } = new();
+
+    // ── Validation result (populated on calculate) ───────────────────
+    public PayoutValidationResultDto? ValidationResult { get; set; }
 }
 
 /// <summary>
@@ -85,4 +91,22 @@ public class PaginatedResult<T>
     public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
     public bool HasNextPage => Page < TotalPages;
     public bool HasPreviousPage => Page > 1;
+}
+
+/// <summary>
+/// Validation result DTO exposed to the frontend.
+/// Contains deterministic result + AI metadata.
+/// </summary>
+public class PayoutValidationResultDto
+{
+    public bool Valid { get; set; }
+    public List<string> Violations { get; set; } = new();
+    public bool RequiresHumanApproval { get; set; } = true;
+    public string AgentId { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+    public bool AiUsed { get; set; }
+    public string? AiProvider { get; set; }
+    public string? AiModel { get; set; }
+    public string? ReasoningSummary { get; set; }
+    public bool FallbackUsed { get; set; }
 }

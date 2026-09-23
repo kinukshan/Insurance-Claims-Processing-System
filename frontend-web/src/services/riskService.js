@@ -29,6 +29,14 @@ export async function getAssessment(claimId) {
 }
 
 /**
+ * Get all risk assessments across all claims.
+ * Authoritative source for dashboard summary metrics and complete assessment list.
+ */
+export async function getAllAssessments() {
+  return apiFetch('/riskassessments');
+}
+
+/**
  * Get all claims with unresolved fraud flags.
  */
 export async function getFlaggedClaims() {

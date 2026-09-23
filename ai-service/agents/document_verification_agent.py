@@ -15,9 +15,12 @@ No hidden chain-of-thought storage.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from schemas.claim_schema import DocumentVerificationRequest, DocumentData
 from schemas.document_result_schema import DocumentVerificationResult, DocumentInconsistency
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentVerificationAgent:
@@ -93,6 +96,7 @@ class DocumentVerificationAgent:
                     explanation = self._gemini.generate_text(
                         prompt=prompt,
                         system_instruction=system_instruction,
+                        operation_name="document_verification",
                     )
 
                     if explanation:
@@ -103,8 +107,18 @@ class DocumentVerificationAgent:
                         reasoning_summary = explanation
                     else:
                         fallback_used = True
-                except Exception:
+                        logger.info(
+                            "Document verification: Gemini explanation unavailable. "
+                            "Using authoritative deterministic checklist result (complete=%s, missing=%d).",
+                            is_complete, len(missing_items)
+                        )
+                except Exception as exc:
                     fallback_used = True
+                    logger.warning(
+                        "Document verification: Gemini call threw unexpected %s. "
+                        "Using authoritative deterministic checklist result (complete=%s).",
+                        type(exc).__name__, is_complete
+                    )
             else:
                 fallback_used = True
 

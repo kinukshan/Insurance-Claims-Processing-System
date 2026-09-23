@@ -216,6 +216,7 @@ class FraudRiskAgent:
                     explanation = await self._gemini.generate_text_async(
                         prompt=prompt,
                         system_instruction=system_instruction,
+                        operation_name="fraud_risk_assessment",
                     )
 
                     if explanation:
@@ -226,8 +227,18 @@ class FraudRiskAgent:
                         reasoning_summary = explanation
                     else:
                         fallback_used = True
-                except Exception:
+                        logger.info(
+                            "Risk assessment: Gemini reasoning unavailable for claim %s. "
+                            "Using authoritative deterministic score=%.1f, rec=%s.",
+                            claim_data.claim_id, round(final_score, 1), recommendation.value
+                        )
+                except Exception as exc:
                     fallback_used = True
+                    logger.warning(
+                        "Risk assessment: Gemini call threw unexpected %s for claim %s. "
+                        "Using authoritative deterministic score=%.1f.",
+                        type(exc).__name__, claim_data.claim_id, round(final_score, 1)
+                    )
             else:
                 fallback_used = True
 

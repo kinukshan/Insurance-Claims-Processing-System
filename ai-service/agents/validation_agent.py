@@ -18,8 +18,11 @@ Responsibility:
     No chain-of-thought is stored.
 """
 
+import logging
 from datetime import datetime
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 from schemas.payout_result_schema import (
     PayoutValidationRequest,
@@ -160,6 +163,7 @@ class ValidationSafetyAgent:
                 explanation = self._gemini.generate_text(
                     prompt=prompt,
                     system_instruction=system_instruction,
+                    operation_name="payout_validation",
                 )
                 if explanation:
                     ai_used = True
@@ -169,8 +173,18 @@ class ValidationSafetyAgent:
                     reasoning_summary = explanation
                 else:
                     fallback_used = True
-            except Exception:
+                    logger.info(
+                        "Payout validation: Gemini safety summary unavailable for claim %s. "
+                        "Using authoritative deterministic validation (passed=%s, violations=%d).",
+                        request.claim_id, is_valid, len(violations)
+                    )
+            except Exception as exc:
                 fallback_used = True
+                logger.warning(
+                    "Payout validation: Gemini call threw unexpected %s for claim %s. "
+                    "Using authoritative deterministic validation.",
+                    type(exc).__name__, request.claim_id
+                )
         else:
             fallback_used = True
 

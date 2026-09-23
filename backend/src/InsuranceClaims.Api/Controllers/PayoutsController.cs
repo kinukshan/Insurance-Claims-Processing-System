@@ -4,6 +4,10 @@ using InsuranceClaims.Domain.PayoutProcessing;
 using InsuranceClaims.Infrastructure.ExternalServices.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using System.Security.Claims;
 
 namespace InsuranceClaims.Api.Controllers;
 
@@ -23,15 +27,18 @@ public class PayoutsController : ControllerBase
     private readonly IPayoutService _payoutService;
     private readonly IPaymentGateway _paymentGateway;
     private readonly IPayoutRepository _payoutRepository;
+    private readonly ILogger<PayoutsController> _logger;
 
     public PayoutsController(
         IPayoutService payoutService,
         IPaymentGateway paymentGateway,
-        IPayoutRepository payoutRepository)
+        IPayoutRepository payoutRepository,
+        ILogger<PayoutsController>? logger = null)
     {
         _payoutService = payoutService;
         _paymentGateway = paymentGateway;
         _payoutRepository = payoutRepository;
+        _logger = logger ?? NullLogger<PayoutsController>.Instance;
     }
 
     /// <summary>
@@ -48,7 +55,23 @@ public class PayoutsController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
+            if (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+            {
+                return Conflict(new { error = ex.Message });
+            }
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database persistence error during payout calculation for claim {ClaimId}", claimId);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "A database error occurred while saving the payout calculation." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during payout calculation for claim {ClaimId}", claimId);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "An unexpected error occurred while calculating the payout." });
         }
     }
 
@@ -111,20 +134,43 @@ public class PayoutsController : ControllerBase
         }
         catch (KeyNotFoundException)
         {
-            return NotFound();
+            return NotFound(new { error = $"Payout '{id}' not found." });
+        }
+        catch (InvalidOperationException ex) when (IsTransitionConflict(ex))
+        {
+            _logger.LogWarning(ex, "Update transition conflict for payout {PayoutId}", id);
+            return Conflict(new { error = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict during payout update {PayoutId}", id);
+            return Conflict(new { error = "The payout was modified or processed by another user. Please refresh and try again." });
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database persistence error during payout update {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "A database error occurred while updating the payout." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during payout update {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "An unexpected error occurred while updating the payout." });
         }
     }
 
     /// <summary>
     /// Approve a payout.
     /// Reviewer identity derived from authenticated server context.
+    /// Restricted to Underwriter and Admin roles (preparer/adjuster cannot approve their own work).
     /// </summary>
     [HttpPost("{id:guid}/approve")]
-    // TODO: [Authorize(Roles = "Approver,Admin")]
+    [Authorize(Roles = "Underwriter,Admin")]
     public async Task<ActionResult<PayoutDto>> ApprovePayout(
         Guid id, [FromBody] PayoutApprovalRequestDto request)
     {
@@ -137,20 +183,43 @@ public class PayoutsController : ControllerBase
         }
         catch (KeyNotFoundException)
         {
-            return NotFound();
+            return NotFound(new { error = $"Payout '{id}' not found." });
+        }
+        catch (InvalidOperationException ex) when (IsTransitionConflict(ex))
+        {
+            _logger.LogWarning(ex, "Approval transition conflict for payout {PayoutId}", id);
+            return Conflict(new { error = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict during payout approval {PayoutId}", id);
+            return Conflict(new { error = "The payout was modified or approved by another user. Please refresh and try again." });
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database persistence error during payout approval {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "A database error occurred while saving the payout approval." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during payout approval {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "An unexpected error occurred while processing the payout approval." });
         }
     }
 
     /// <summary>
     /// Reject a payout.
     /// Reviewer identity derived from authenticated server context.
+    /// Restricted to Underwriter and Admin roles.
     /// </summary>
     [HttpPost("{id:guid}/reject")]
-    // TODO: [Authorize(Roles = "Approver,Admin")]
+    [Authorize(Roles = "Underwriter,Admin")]
     public async Task<ActionResult<PayoutDto>> RejectPayout(
         Guid id, [FromBody] PayoutApprovalRequestDto request)
     {
@@ -163,20 +232,43 @@ public class PayoutsController : ControllerBase
         }
         catch (KeyNotFoundException)
         {
-            return NotFound();
+            return NotFound(new { error = $"Payout '{id}' not found." });
+        }
+        catch (InvalidOperationException ex) when (IsTransitionConflict(ex))
+        {
+            _logger.LogWarning(ex, "Reject transition conflict for payout {PayoutId}", id);
+            return Conflict(new { error = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict during payout rejection {PayoutId}", id);
+            return Conflict(new { error = "The payout was modified or approved by another user. Please refresh and try again." });
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database persistence error during payout rejection {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "A database error occurred while saving the payout rejection." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during payout rejection {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "An unexpected error occurred while processing the payout rejection." });
         }
     }
 
     /// <summary>
     /// Request revision on a payout.
     /// Reviewer identity derived from authenticated server context.
+    /// Restricted to Underwriter and Admin roles.
     /// </summary>
     [HttpPost("{id:guid}/request-revision")]
-    // TODO: [Authorize(Roles = "Approver,Admin")]
+    [Authorize(Roles = "Underwriter,Admin")]
     public async Task<ActionResult<PayoutDto>> RequestRevision(
         Guid id, [FromBody] PayoutApprovalRequestDto request)
     {
@@ -189,20 +281,43 @@ public class PayoutsController : ControllerBase
         }
         catch (KeyNotFoundException)
         {
-            return NotFound();
+            return NotFound(new { error = $"Payout '{id}' not found." });
+        }
+        catch (InvalidOperationException ex) when (IsTransitionConflict(ex))
+        {
+            _logger.LogWarning(ex, "Revision transition conflict for payout {PayoutId}", id);
+            return Conflict(new { error = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict during payout revision request {PayoutId}", id);
+            return Conflict(new { error = "The payout was modified or approved by another user. Please refresh and try again." });
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database persistence error during payout revision request {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "A database error occurred while saving the payout revision." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during payout revision request {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "An unexpected error occurred while processing the payout revision." });
         }
     }
 
     /// <summary>
     /// Execute an approved payout. Must have valid human approval first.
     /// The AI must NEVER automatically execute a real payment.
+    /// Restricted to Admin only — final payment execution is a high-impact action.
     /// </summary>
     [HttpPost("{id:guid}/execute")]
-    // TODO: [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<PayoutDto>> ExecutePayout(Guid id)
     {
         try
@@ -237,11 +352,33 @@ public class PayoutsController : ControllerBase
         }
         catch (KeyNotFoundException)
         {
-            return NotFound();
+            return NotFound(new { error = $"Payout '{id}' not found." });
+        }
+        catch (InvalidOperationException ex) when (IsTransitionConflict(ex))
+        {
+            _logger.LogWarning(ex, "Execution transition conflict for payout {PayoutId}", id);
+            return Conflict(new { error = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict during payout execution {PayoutId}", id);
+            return Conflict(new { error = "The payout was modified or processed by another user. Please refresh and try again." });
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database persistence error during payout execution {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "A database error occurred while executing the payout." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during payout execution {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "An unexpected error occurred while executing the payout." });
         }
     }
 
@@ -258,30 +395,74 @@ public class PayoutsController : ControllerBase
         }
         catch (KeyNotFoundException)
         {
-            return NotFound();
+            return NotFound(new { error = $"Payout '{id}' not found." });
+        }
+        catch (InvalidOperationException ex) when (IsTransitionConflict(ex))
+        {
+            _logger.LogWarning(ex, "Delete transition conflict for payout {PayoutId}", id);
+            return Conflict(new { error = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict during payout deletion {PayoutId}", id);
+            return Conflict(new { error = "The payout was modified by another user. Please refresh and try again." });
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database persistence error during payout deletion {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "A database error occurred while deleting the payout." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during payout deletion {PayoutId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "An unexpected error occurred while deleting the payout." });
         }
     }
 
     // ── Private helpers ──────────────────────────────────────────────
 
     /// <summary>
-    /// Extract reviewer identity from the authenticated server context.
-    /// Currently returns placeholder values until shared auth middleware is wired.
-    /// Will be replaced with:
-    ///   User.FindFirst(ClaimTypes.NameIdentifier)
-    ///   User.FindFirst(ClaimTypes.Name)
+    /// Check whether an InvalidOperationException represents a workflow state transition conflict.
+    /// </summary>
+    private static bool IsTransitionConflict(InvalidOperationException ex)
+    {
+        var msg = ex.Message;
+        return msg.Contains("Cannot approve payout from status", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Cannot reject payout from status", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Cannot request revision from status", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Cannot execute payout from status", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Cannot update payout in status", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Cannot delete payout in status", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Must be PendingApproval", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Must be Approved", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("Must be Draft", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Extract reviewer identity from the authenticated server context (JWT claims).
+    /// Follows the same pattern used by ClaimsController and PoliciesController.
     /// </summary>
     private (Guid ReviewerId, string ReviewerName) GetReviewerIdentity()
     {
-        // TODO: Replace with authenticated user context once auth middleware is available:
-        //   var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "");
-        //   var userName = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
-        //   return (userId, userName);
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                       ?? User.FindFirst("sub")?.Value;
 
-        return (Guid.Parse("00000000-0000-0000-0000-000000000001"), "Staff Reviewer (Dev)");
+        var userName = User.FindFirst(ClaimTypes.Name)?.Value
+                    ?? User.FindFirst("name")?.Value
+                    ?? "Unknown Reviewer";
+
+        if (Guid.TryParse(userIdClaim, out var userId))
+        {
+            return (userId, userName);
+        }
+
+        // Fallback for dev/testing when JWT doesn't contain standard claims
+        return (Guid.Empty, userName);
     }
 }

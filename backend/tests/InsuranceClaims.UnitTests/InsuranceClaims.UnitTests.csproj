@@ -22,6 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\InsuranceClaims.Api\InsuranceClaims.Api.csproj" />
     <ProjectReference Include="..\..\src\InsuranceClaims.Application\InsuranceClaims.Application.csproj" />
     <ProjectReference Include="..\..\src\InsuranceClaims.Domain\InsuranceClaims.Domain.csproj" />
     <ProjectReference Include="..\..\src\InsuranceClaims.Infrastructure\InsuranceClaims.Infrastructure.csproj" />

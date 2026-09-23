@@ -19,6 +19,9 @@ public interface IRiskAssessmentService
     /// <summary>Get all claims that have been flagged with unresolved fraud flags.</summary>
     Task<IReadOnlyList<RiskAssessmentDto>> GetFlaggedClaimsAsync();
 
+    /// <summary>Get all risk assessments for dashboard.</summary>
+    Task<IReadOnlyList<RiskAssessmentDto>> GetAllAssessmentsAsync();
+
     /// <summary>Get fraud case history for a policyholder.</summary>
     Task<IReadOnlyList<FraudCaseDto>> GetHistoryAsync(Guid policyholderId);
 

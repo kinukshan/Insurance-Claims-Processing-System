@@ -106,7 +106,7 @@ public static class DependencyInjection
         // ── Payout Processing ────────────────────────────────────────
         services.AddScoped<IPayoutRepository, PayoutRepository>();
         services.AddScoped<IPayoutService, PayoutService>();
-        services.AddScoped<IPayoutContextProvider, StubPayoutContextProvider>();
+        services.AddScoped<IPayoutContextProvider, EfPayoutContextProvider>();
         services.AddScoped<IPaymentGateway, SandboxPaymentGateway>();
 
         // Agent integration: ASP.NET Core → Internal AI Service

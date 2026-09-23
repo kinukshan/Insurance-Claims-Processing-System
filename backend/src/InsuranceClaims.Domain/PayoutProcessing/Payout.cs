@@ -81,6 +81,92 @@ public class Payout : BaseEntity
     }
 
     /// <summary>
+    /// Approves the payout and creates the corresponding audit approval record.
+    /// </summary>
+    public PayoutApproval Approve(Guid reviewerId, string reviewerName, string comments)
+    {
+        if (!IsValidTransition(Status, PayoutStatus.Approved))
+        {
+            throw new InvalidOperationException(
+                $"Cannot approve payout from status '{Status}'. Must be PendingApproval.");
+        }
+
+        Status = PayoutStatus.Approved;
+        ApprovedBy = reviewerName;
+        ApprovalTimestamp = DateTime.UtcNow;
+
+        var approval = new PayoutApproval
+        {
+            Id = Guid.NewGuid(),
+            PayoutId = Id,
+            ReviewerId = reviewerId,
+            ReviewerName = reviewerName,
+            Decision = ApprovalDecisionType.Approved,
+            Comments = comments,
+            DecisionTimestamp = DateTime.UtcNow
+        };
+
+        Approvals.Add(approval);
+        return approval;
+    }
+
+    /// <summary>
+    /// Rejects the payout and creates the corresponding audit approval record.
+    /// </summary>
+    public PayoutApproval Reject(Guid reviewerId, string reviewerName, string comments)
+    {
+        if (!IsValidTransition(Status, PayoutStatus.Rejected))
+        {
+            throw new InvalidOperationException(
+                $"Cannot reject payout from status '{Status}'. Must be PendingApproval.");
+        }
+
+        Status = PayoutStatus.Rejected;
+
+        var approval = new PayoutApproval
+        {
+            Id = Guid.NewGuid(),
+            PayoutId = Id,
+            ReviewerId = reviewerId,
+            ReviewerName = reviewerName,
+            Decision = ApprovalDecisionType.Rejected,
+            Comments = comments,
+            DecisionTimestamp = DateTime.UtcNow
+        };
+
+        Approvals.Add(approval);
+        return approval;
+    }
+
+    /// <summary>
+    /// Requests revision on the payout and creates the corresponding audit approval record.
+    /// </summary>
+    public PayoutApproval RequestRevision(Guid reviewerId, string reviewerName, string comments)
+    {
+        if (!IsValidTransition(Status, PayoutStatus.RevisionRequested))
+        {
+            throw new InvalidOperationException(
+                $"Cannot request revision from status '{Status}'. Must be PendingApproval.");
+        }
+
+        Status = PayoutStatus.RevisionRequested;
+
+        var approval = new PayoutApproval
+        {
+            Id = Guid.NewGuid(),
+            PayoutId = Id,
+            ReviewerId = reviewerId,
+            ReviewerName = reviewerName,
+            Decision = ApprovalDecisionType.RevisionRequested,
+            Comments = comments,
+            DecisionTimestamp = DateTime.UtcNow
+        };
+
+        Approvals.Add(approval);
+        return approval;
+    }
+
+    /// <summary>
     /// Validates whether a transition from the current status to the target status is legal.
     /// </summary>
     public static bool IsValidTransition(PayoutStatus from, PayoutStatus to)
