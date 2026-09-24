@@ -41,6 +41,9 @@ DUPLICATE_SCORE_CONTRIBUTION = 35.0
 HIGH_AMOUNT_SCORE_CONTRIBUTION = 25.0
 FREQUENCY_SCORE_CONTRIBUTION = 15.0
 PATTERN_SCORE_CONTRIBUTION = 15.0
+DOCUMENT_MISMATCH_SCORE_CONTRIBUTION = 40.0
+DUPLICATE_DOC_SCORE_CONTRIBUTION = 25.0
+UNREADABLE_DOC_SCORE_CONTRIBUTION = 20.0
 
 
 class FraudRiskAgent:
@@ -78,14 +81,10 @@ class FraudRiskAgent:
         3. Check for duplicate claims
         4. Analyze claim frequency
         5. Detect historical patterns
-        6. Compute aggregate risk score
-        7. Produce structured result
-
-        Args:
-            claim_data: Validated claim data to assess.
-
-        Returns:
-            Structured RiskAssessmentResult with score, flags, and recommendation.
+        6. Check deterministic document integrity signals
+        7. Compute aggregate risk score
+        8. Determine recommendation
+        9. Optional Gemini Contextual Reasoning Layer
         """
         try:
             flags: List[RiskFlag] = []
@@ -171,14 +170,66 @@ class FraudRiskAgent:
                         )
                     score_contributions.append(PATTERN_SCORE_CONTRIBUTION)
 
-            # ── Step 6: Compute aggregate score ──────────────────
+            # ── Step 6: Document verification signals ────────────
+            # Ingest any passed document flags from backend
+            for dflag in (claim_data.document_flags or []):
+                if isinstance(dflag, str):
+                    if ":" in dflag:
+                        ftype, fdesc = dflag.split(":", 1)
+                        ftype = ftype.strip()
+                        fdesc = fdesc.strip()
+                    else:
+                        ftype = "DocumentTypeMismatch"
+                        fdesc = dflag
+                    fsev = "High"
+                else:
+                    ftype = dflag.get("flag_type", "DocumentTypeMismatch")
+                    fdesc = dflag.get("description", "Document verification anomaly detected.")
+                    fsev = dflag.get("severity", "High")
+
+                flags.append(RiskFlag(flag_type=ftype, description=fdesc, severity=fsev))
+                if ftype == "DocumentTypeMismatch":
+                    score_contributions.append(DOCUMENT_MISMATCH_SCORE_CONTRIBUTION)
+                elif ftype == "DuplicateDocumentReused":
+                    score_contributions.append(DUPLICATE_DOC_SCORE_CONTRIBUTION)
+                elif ftype == "DocumentUnreadable":
+                    score_contributions.append(UNREADABLE_DOC_SCORE_CONTRIBUTION)
+                else:
+                    score_contributions.append(20.0)
+
+            # Check documents directly if passed without pre-computed flags
+            if not claim_data.document_flags and claim_data.documents:
+                for doc in claim_data.documents:
+                    vstatus = (doc.verification_status or "").lower()
+                    if vstatus in ("mismatch", "rejected"):
+                        flags.append(
+                            RiskFlag(
+                                flag_type="DocumentTypeMismatch",
+                                description=f"Document '{doc.file_name}' for '{doc.document_type}' failed verification (status: {doc.verification_status}).",
+                                severity="High",
+                            )
+                        )
+                        score_contributions.append(DOCUMENT_MISMATCH_SCORE_CONTRIBUTION)
+                    elif vstatus == "unreadable":
+                        flags.append(
+                            RiskFlag(
+                                flag_type="DocumentUnreadable",
+                                description=f"Document '{doc.file_name}' for '{doc.document_type}' is unreadable.",
+                                severity="Medium",
+                            )
+                        )
+                        score_contributions.append(UNREADABLE_DOC_SCORE_CONTRIBUTION)
+
+            # ── Step 7: Compute aggregate score ──────────────────
             raw_score = sum(score_contributions)
             final_score = max(0.0, min(100.0, raw_score))
 
-            # ── Step 7: Determine recommendation ─────────────────
+            # ── Step 8: Determine recommendation ─────────────────
+            has_mismatch_flags = any(f.flag_type == "DocumentTypeMismatch" for f in flags)
+            has_critical_flags = any(f.severity in ("Critical", "High") for f in flags)
             recommendation = (
                 RecommendationType.ESCALATE
-                if final_score >= ESCALATION_SCORE_THRESHOLD
+                if final_score >= ESCALATION_SCORE_THRESHOLD or (has_mismatch_flags and final_score >= 30.0) or (has_critical_flags and final_score >= 60.0)
                 else RecommendationType.PROCEED
             )
 

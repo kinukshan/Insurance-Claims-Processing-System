@@ -355,6 +355,180 @@ namespace InsuranceClaims.Infrastructure.Persistence.Migrations
                     b.ToTable("ClaimDocuments", (string)null);
                 });
 
+            modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.PaymentTransaction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FailureMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("PayoutId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ProviderBatchId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProviderEventId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProviderItemId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProviderStatusRaw")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ProviderTransactionId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Recipient")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("SenderBatchId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SenderItemId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("PayoutId");
+
+                    b.HasIndex("ProviderBatchId");
+
+                    b.HasIndex("ProviderItemId");
+
+                    b.HasIndex("ProviderTransactionId");
+
+                    b.HasIndex("SenderBatchId");
+
+                    b.HasIndex("SenderItemId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("PaymentTransactions", (string)null);
+                });
+
+            modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.PaymentWebhookEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("PaymentTransactionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProcessingStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ProviderEventId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResourceType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventType");
+
+                    b.HasIndex("PaymentTransactionId");
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.HasIndex("Provider", "ProviderEventId")
+                        .IsUnique();
+
+                    b.ToTable("PaymentWebhookEvents", (string)null);
+                });
+
             modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.Payout", b =>
                 {
                     b.Property<Guid>("Id")
@@ -602,6 +776,11 @@ namespace InsuranceClaims.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<int>("InsuranceClass")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
@@ -959,6 +1138,27 @@ namespace InsuranceClaims.Infrastructure.Persistence.Migrations
                     b.Navigation("Claim");
                 });
 
+            modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.PaymentTransaction", b =>
+                {
+                    b.HasOne("InsuranceClaims.Domain.PayoutProcessing.Payout", "Payout")
+                        .WithMany("PaymentTransactions")
+                        .HasForeignKey("PayoutId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Payout");
+                });
+
+            modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.PaymentWebhookEvent", b =>
+                {
+                    b.HasOne("InsuranceClaims.Domain.PayoutProcessing.PaymentTransaction", "PaymentTransaction")
+                        .WithMany("WebhookEvents")
+                        .HasForeignKey("PaymentTransactionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("PaymentTransaction");
+                });
+
             modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.Payout", b =>
                 {
                     b.HasOne("InsuranceClaims.Domain.ClaimsManagement.Claim", "Claim")
@@ -1039,9 +1239,16 @@ namespace InsuranceClaims.Infrastructure.Persistence.Migrations
                     b.Navigation("Documents");
                 });
 
+            modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.PaymentTransaction", b =>
+                {
+                    b.Navigation("WebhookEvents");
+                });
+
             modelBuilder.Entity("InsuranceClaims.Domain.PayoutProcessing.Payout", b =>
                 {
                     b.Navigation("Approvals");
+
+                    b.Navigation("PaymentTransactions");
                 });
 
             modelBuilder.Entity("InsuranceClaims.Domain.PolicyManagement.Policy", b =>

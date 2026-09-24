@@ -63,16 +63,20 @@ function PolicyCreate({ onBack, onCreated }) {
     }
   }
 
+  const selectedType = policyTypes.find((pt) => pt.id === formData.policyTypeId)
+  const isLifeSelected = selectedType?.id === '22222222-2222-4222-8222-222222222224' || selectedType?.name === 'Life Insurance'
+
   const handlePolicyTypeChange = (e) => {
     const selectedTypeId = e.target.value
-    const selectedType = policyTypes.find((pt) => pt.id === selectedTypeId)
+    const selected = policyTypes.find((pt) => pt.id === selectedTypeId)
+    const isLife = selected?.id === '22222222-2222-4222-8222-222222222224' || selected?.name === 'Life Insurance'
 
     setFormData((prev) => ({
       ...prev,
       policyTypeId: selectedTypeId,
       // Autofill defaults if empty
-      coverageLimit: selectedType?.defaultCoverageLimit != null ? String(selectedType.defaultCoverageLimit) : prev.coverageLimit,
-      deductible: selectedType?.defaultDeductible != null ? String(selectedType.defaultDeductible) : prev.deductible,
+      coverageLimit: selected?.defaultCoverageLimit != null ? String(selected.defaultCoverageLimit) : prev.coverageLimit,
+      deductible: isLife ? '0' : (selected?.defaultDeductible != null ? String(selected.defaultDeductible) : prev.deductible),
     }))
 
     if (errors.policyTypeId) {
@@ -103,8 +107,8 @@ function PolicyCreate({ onBack, onCreated }) {
       newErrors.coverageLimit = 'Coverage limit must be greater than zero.'
     }
 
-    const deductible = Number(formData.deductible)
-    if (formData.deductible !== '' && deductible < 0) {
+    const deductible = isLifeSelected ? 0 : Number(formData.deductible)
+    if (!isLifeSelected && formData.deductible !== '' && deductible < 0) {
       newErrors.deductible = 'Deductible cannot be negative.'
     }
 
@@ -141,7 +145,7 @@ function PolicyCreate({ onBack, onCreated }) {
         policyholderId: isPolicyholder ? (user?.userId || '') : formData.policyholderId.trim(),
         policyTypeId: formData.policyTypeId.trim(),
         coverageLimit: Number(formData.coverageLimit),
-        deductible: Number(formData.deductible) || 0,
+        deductible: isLifeSelected ? 0 : (Number(formData.deductible) || 0),
         startDate: new Date(formData.startDate).toISOString(),
         expiryDate: new Date(formData.expiryDate).toISOString(),
         exclusions: formData.exclusions || null,
@@ -172,6 +176,18 @@ function PolicyCreate({ onBack, onCreated }) {
   const labelStyle = { display: 'block', fontWeight: 500, marginBottom: '4px', color: '#374151' }
 
   const fieldErrorStyle = { color: '#dc2626', fontSize: '0.8rem', marginTop: '4px' }
+
+  // Group by backend insuranceClassCode
+  const generalPolicies = policyTypes.filter((pt) => pt.insuranceClassCode === 'General')
+  const longTermPolicies = policyTypes.filter((pt) => pt.insuranceClassCode === 'LongTerm')
+  const unclassifiedPolicies = policyTypes.filter(
+    (pt) => pt.insuranceClassCode !== 'General' && pt.insuranceClassCode !== 'LongTerm'
+  )
+
+  const getDisplayName = (pt) => {
+    if (pt.name === 'Home Insurance') return 'Home / Property Insurance'
+    return pt.name
+  }
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
@@ -240,11 +256,33 @@ function PolicyCreate({ onBack, onCreated }) {
             <option value="">
               {loadingTypes ? 'Loading policy types...' : 'Select a policy type...'}
             </option>
-            {policyTypes.map((pt) => (
-              <option key={pt.id} value={pt.id}>
-                {pt.name} {pt.description ? `— ${pt.description}` : ''}
-              </option>
-            ))}
+            {generalPolicies.length > 0 && (
+              <optgroup label="General Insurance">
+                {generalPolicies.map((pt) => (
+                  <option key={pt.id} value={pt.id}>
+                    {getDisplayName(pt)} {pt.description ? `— ${pt.description}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {longTermPolicies.length > 0 && (
+              <optgroup label="Long-Term Insurance">
+                {longTermPolicies.map((pt) => (
+                  <option key={pt.id} value={pt.id}>
+                    {getDisplayName(pt)} {pt.description ? `— ${pt.description}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {unclassifiedPolicies.length > 0 && (
+              <optgroup label="Unclassified">
+                {unclassifiedPolicies.map((pt) => (
+                  <option key={pt.id} value={pt.id}>
+                    {getDisplayName(pt)} {pt.description ? `— ${pt.description}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           {errors.policyTypeId && <div style={fieldErrorStyle}>{errors.policyTypeId}</div>}
         </div>
@@ -269,13 +307,19 @@ function PolicyCreate({ onBack, onCreated }) {
             <input
               type="number"
               name="deductible"
-              value={formData.deductible}
+              value={isLifeSelected ? '0' : formData.deductible}
               onChange={handleChange}
+              disabled={isLifeSelected}
               placeholder="1000"
               min="0"
               step="0.01"
               style={errors.deductible ? errorFieldStyle : fieldStyle}
             />
+            {isLifeSelected && (
+              <div style={{ color: '#059669', fontSize: '0.8rem', marginTop: '4px' }}>
+                Project rule: Life Insurance deductible is $0.
+              </div>
+            )}
             {errors.deductible && <div style={fieldErrorStyle}>{errors.deductible}</div>}
           </div>
         </div>

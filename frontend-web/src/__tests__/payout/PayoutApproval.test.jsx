@@ -19,6 +19,8 @@ vi.mock('../../services/payoutService', () => ({
   rejectPayout: vi.fn(),
   requestRevision: vi.fn(),
   executePayout: vi.fn(),
+  syncPaymentStatus: vi.fn(),
+  getPaymentProviderInfo: vi.fn(),
 }))
 
 import PayoutApproval from '../../pages/payout/PayoutApproval'
@@ -29,6 +31,8 @@ import {
   rejectPayout,
   requestRevision,
   executePayout,
+  syncPaymentStatus,
+  getPaymentProviderInfo,
 } from '../../services/payoutService'
 
 const mockPayout = {
@@ -51,6 +55,7 @@ describe('PayoutApproval', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuth.role = 'Admin'
+    getPaymentProviderInfo.mockResolvedValue({ provider: 'Mock', isMock: true })
   })
 
   it('renders lookup form', () => {
@@ -210,6 +215,251 @@ describe('PayoutApproval', () => {
     await waitFor(() => {
       expect(approvePayout).toHaveBeenCalledWith('payout-1', '')
       expect(screen.getByText(/Action completed/i)).toBeTruthy()
+    })
+  })
+
+  it('calls executePayout when Admin clicks Execute Payout', async () => {
+    const approvedPayout = { ...mockPayout, status: 2, statusDisplay: 'Approved', approvedBy: 'Test Underwriter' }
+    getPayoutById.mockResolvedValueOnce(approvedPayout)
+    executePayout.mockResolvedValueOnce({
+      payoutId: 'payout-1',
+      transactionId: 'tx-1',
+      providerTransactionId: 'MOCK-TX-123',
+      status: 'Succeeded',
+      message: 'Payment executed successfully.',
+    })
+    getPayoutById.mockResolvedValueOnce({
+      ...approvedPayout,
+      status: 6,
+      statusDisplay: 'Paid',
+      paymentReference: 'MOCK-TX-123',
+    })
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => screen.getByText(/Execute Payout/i))
+    fireEvent.click(screen.getByText(/Execute Payout/i))
+
+    await waitFor(() => {
+      expect(executePayout).toHaveBeenCalledWith('payout-1')
+      expect(screen.getByText(/Payment executed successfully/i)).toBeTruthy()
+    })
+  })
+
+  it('displays executing state and disables button during execution', async () => {
+    let resolveExecute
+    const executePromise = new Promise((resolve) => {
+      resolveExecute = resolve
+    })
+    const approvedPayout = { ...mockPayout, status: 2, statusDisplay: 'Approved', approvedBy: 'Test Underwriter' }
+    getPayoutById.mockResolvedValueOnce(approvedPayout)
+    executePayout.mockReturnValueOnce(executePromise)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => screen.getByText(/Execute Payout/i))
+    const btn = screen.getByText(/Execute Payout/i)
+    fireEvent.click(btn)
+
+    // Button should now show "Executing..." and be disabled
+    expect(screen.getByText('Executing...')).toBeTruthy()
+    expect(screen.getByText('Executing...').closest('button').disabled).toBe(true)
+
+    // Resolve execution
+    resolveExecute({
+      payoutId: 'payout-1',
+      transactionId: 'tx-1',
+      providerTransactionId: 'MOCK-TX-123',
+      status: 'Succeeded',
+      message: 'Done',
+    })
+    getPayoutById.mockResolvedValueOnce({ ...approvedPayout, status: 6, statusDisplay: 'Paid' })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Executing...')).toBeNull()
+    })
+  })
+
+  it('displays error safely when executePayout fails', async () => {
+    const approvedPayout = { ...mockPayout, status: 2, statusDisplay: 'Approved', approvedBy: 'Test Underwriter' }
+    getPayoutById.mockResolvedValueOnce(approvedPayout)
+    const error = new Error('Payment gateway encountered an error.')
+    error.status = 502
+    executePayout.mockRejectedValueOnce(error)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => screen.getByText(/Execute Payout/i))
+    fireEvent.click(screen.getByText(/Execute Payout/i))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Payment gateway encountered an error/i)).toBeTruthy()
+    })
+  })
+
+  it('hides execute button for ClaimsAdjuster on Approved status', async () => {
+    mockAuth.role = 'ClaimsAdjuster'
+    const approvedPayout = { ...mockPayout, status: 2, statusDisplay: 'Approved', approvedBy: 'Test Admin' }
+    getPayoutById.mockResolvedValueOnce(approvedPayout)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Execute Payout/i)).toBeNull()
+      expect(screen.getByText(/Admin must execute/i)).toBeTruthy()
+    })
+  })
+
+  it('renders Mock Payment Gateway label and does NOT render PayPal Sandbox by default', async () => {
+    getPayoutById.mockResolvedValueOnce(mockPayout)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Mock Payment Gateway/i)).toBeTruthy()
+      expect(screen.queryByText(/PayPal Sandbox/i)).toBeNull()
+      expect(screen.queryByText(/PayPal/i)).toBeNull()
+    })
+  })
+
+  it('displays "Processing Payment..." during execution when provider is Mock', async () => {
+    let resolveExecute
+    const executePromise = new Promise((resolve) => {
+      resolveExecute = resolve
+    })
+    const approvedPayout = { ...mockPayout, status: 2, statusDisplay: 'Approved', approvedBy: 'Test Underwriter' }
+    getPayoutById.mockResolvedValueOnce(approvedPayout)
+    executePayout.mockReturnValueOnce(executePromise)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => screen.getByText(/Execute Payout/i))
+    fireEvent.click(screen.getByText(/Execute Payout/i))
+
+    // Should display neutral "Processing Payment..." and NOT "Sending to PayPal Sandbox..."
+    expect(screen.getByText('Processing Payment...')).toBeTruthy()
+    expect(screen.queryByText('Sending to PayPal Sandbox...')).toBeNull()
+
+    resolveExecute({
+      payoutId: 'payout-1',
+      transactionId: 'tx-1',
+      provider: 'Mock',
+      providerTransactionId: 'MOCK-PAY-12345',
+      status: 'Succeeded',
+      message: 'MOCK: Payment completed successfully.'
+    })
+  })
+
+  it('renders PayPal Sandbox label and "Sending to PayPal Sandbox..." when provider is PayPalSandbox', async () => {
+    getPaymentProviderInfo.mockResolvedValueOnce({ provider: 'PayPalSandbox', isMock: false })
+    const payPalPayout = {
+      ...mockPayout,
+      status: 2,
+      statusDisplay: 'Approved',
+      approvedBy: 'Test Underwriter',
+      paymentProvider: 'PayPalSandbox'
+    }
+    getPayoutById.mockResolvedValueOnce(payPalPayout)
+
+    let resolveExecute
+    const executePromise = new Promise((resolve) => {
+      resolveExecute = resolve
+    })
+    executePayout.mockReturnValueOnce(executePromise)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => {
+      expect(screen.getByText(/PayPal Sandbox/i)).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByText(/Execute Payout/i))
+
+    expect(screen.getByText('Sending to PayPal Sandbox...')).toBeTruthy()
+    expect(screen.queryByText('Processing Payment...')).toBeNull()
+
+    resolveExecute({
+      payoutId: 'payout-1',
+      transactionId: 'tx-paypal-1',
+      provider: 'PayPalSandbox',
+      status: 'Processing',
+      message: 'PayPal Sandbox payout created.'
+    })
+  })
+
+  it('displays safe error message when execution fails', async () => {
+    const approvedPayout = {
+      ...mockPayout,
+      status: 2,
+      statusDisplay: 'Approved',
+      approvedBy: 'Test Underwriter'
+    }
+    getPayoutById.mockResolvedValueOnce(approvedPayout)
+
+    const execError = new Error('Payment gateway encountered an error. The payout was not completed.')
+    execError.status = 502
+    executePayout.mockRejectedValueOnce(execError)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => screen.getByText(/Execute Payout/i))
+    fireEvent.click(screen.getByText(/Execute Payout/i))
+
+    await waitFor(() => {
+      expect(screen.getByText('Payment gateway encountered an error. The payout was not completed.')).toBeTruthy()
+    })
+  })
+
+  it('sanitizes internal SQL or exception errors from being exposed to the user', async () => {
+    const approvedPayout = {
+      ...mockPayout,
+      status: 2,
+      statusDisplay: 'Approved',
+      approvedBy: 'Test Underwriter'
+    }
+    getPayoutById.mockResolvedValueOnce(approvedPayout)
+
+    const leakError = new Error('Npgsql.PostgresException: 42P01: relation "PaymentTransactions" does not exist at Host=ep-test.aws.neon.tech')
+    leakError.status = 500
+    executePayout.mockRejectedValueOnce(leakError)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-1' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => screen.getByText(/Execute Payout/i))
+    fireEvent.click(screen.getByText(/Execute Payout/i))
+
+    await waitFor(() => {
+      // Must NOT contain sensitive SQL or connection details
+      expect(screen.queryByText(/relation "PaymentTransactions" does not exist/i)).toBeNull()
+      expect(screen.queryByText(/neon\.tech/i)).toBeNull()
+      expect(screen.getByText('Payment execution failed due to an internal system error. Please contact an administrator.')).toBeTruthy()
     })
   })
 })

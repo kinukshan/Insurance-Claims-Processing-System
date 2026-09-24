@@ -8,5 +8,7 @@ public enum DocumentVerificationStatus
     Pending = 0,
     Verified = 1,
     Rejected = 2,
-    Flagged = 3
+    Flagged = 3,
+    Mismatch = 4,
+    Unreadable = 5
 }

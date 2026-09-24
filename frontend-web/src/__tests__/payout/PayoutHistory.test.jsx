@@ -4,11 +4,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import PayoutHistory from '../../pages/payout/PayoutHistory'
 import * as payoutService from '../../services/payoutService'
 
+let mockAuth = { role: null, user: null }
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => mockAuth,
+}))
+
 vi.mock('../../services/payoutService')
 
 describe('PayoutHistory Page Component', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockAuth = { role: null, user: null }
   })
 
   it('renders history table with records from service', async () => {
@@ -108,6 +114,69 @@ describe('PayoutHistory Page Component', () => {
     await waitFor(() => {
       expect(payoutService.getPayoutHistory).toHaveBeenCalledWith(
         expect.objectContaining({ page: 1, status: '1' })
+      )
+    })
+  })
+
+  it('renders My Payouts heading and calls getMyPayouts when user is Policyholder', async () => {
+    mockAuth = { role: 'Policyholder', user: { id: 'policyholder-123', role: 'Policyholder', email: 'policyholder@test.com' } }
+    payoutService.getMyPayouts.mockResolvedValueOnce({
+      items: [
+        {
+          id: 'payout-uuid-user',
+          claimId: 'claim-uuid-user',
+          claimNumber: 'CLM-20260921-9999',
+          finalPayout: 3200,
+          status: 2,
+          statusDisplay: 'Approved',
+          createdAt: '2026-09-22T10:00:00Z',
+        },
+      ],
+      totalCount: 1,
+      page: 1,
+      pageSize: 20,
+      totalPages: 1,
+      hasNextPage: false,
+    })
+
+    render(<PayoutHistory />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'My Payouts' })).toBeTruthy()
+      expect(screen.getByText('CLM-20260921-9999')).toBeTruthy()
+      expect(screen.getByText('$3,200.00')).toBeTruthy()
+      expect(screen.getAllByText('Approved').length).toBeGreaterThan(0)
+    })
+
+    expect(payoutService.getMyPayouts).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, pageSize: 20 })
+    )
+    expect(payoutService.getPayoutHistory).not.toHaveBeenCalled()
+  })
+
+  it('triggers filter reload with getMyPayouts for Policyholder when status filter is changed', async () => {
+    mockAuth = { role: 'Policyholder', user: { id: 'policyholder-123', role: 'Policyholder' } }
+    payoutService.getMyPayouts.mockResolvedValue({
+      items: [],
+      totalCount: 0,
+      page: 1,
+      pageSize: 20,
+      totalPages: 0,
+    })
+
+    render(<PayoutHistory />)
+
+    await waitFor(() => {
+      expect(payoutService.getMyPayouts).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 1, status: undefined })
+      )
+    })
+
+    fireEvent.change(document.getElementById('payout-status-filter'), { target: { value: '2' } })
+
+    await waitFor(() => {
+      expect(payoutService.getMyPayouts).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 1, status: '2' })
       )
     })
   })

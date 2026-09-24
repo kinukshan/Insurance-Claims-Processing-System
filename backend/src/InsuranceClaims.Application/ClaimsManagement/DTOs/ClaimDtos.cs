@@ -119,3 +119,25 @@ public record DocumentInconsistencyDto(
     string Description,
     string Severity
 );
+
+/// <summary>
+/// Deterministic document requirements response DTO for a claim.
+/// </summary>
+public record ClaimDocumentRequirementsDto(
+    Guid ClaimId,
+    string ClaimType,
+    List<ClaimDocumentRequirementItemDto> RequiredDocuments,
+    int RequiredCount,
+    int UploadedRequiredCount,
+    int MissingCount,
+    bool Complete
+);
+
+/// <summary>
+/// A single required document item and its upload status.
+/// </summary>
+public record ClaimDocumentRequirementItemDto(
+    string Type,
+    bool Required,
+    bool Uploaded
+);

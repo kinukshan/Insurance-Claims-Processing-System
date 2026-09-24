@@ -30,6 +30,7 @@ public class PayoutDto
 
     // ── Payment ──────────────────────────────────────────────────────
     public string? PaymentReference { get; set; }
+    public string? PaymentProvider { get; set; }
 
     // ── Audit ────────────────────────────────────────────────────────
     public DateTime CreatedAt { get; set; }

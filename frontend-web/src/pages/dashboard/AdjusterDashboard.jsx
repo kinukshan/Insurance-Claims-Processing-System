@@ -40,10 +40,10 @@ function AdjusterDashboard() {
 
         <div className="dashboard-card">
           <div className="dashboard-card-icon">💰</div>
-          <h3>Payout Authorizations</h3>
-          <p>Calculate compensation amounts based on coverage and deductible, and authorize verified claim disbursements.</p>
+          <h3>Payout Management</h3>
+          <p>Calculate compensation amounts based on coverage and deductible, and track verified claim disbursements.</p>
           <div className="dashboard-card-actions">
-            <Link to="/payouts/approval" className="btn btn--primary">Pending Approvals</Link>
+            <Link to="/payouts" className="btn btn--primary">Payout History</Link>
             <Link to="/payouts/calculate" className="btn btn--secondary">Calculate Payout</Link>
           </div>
         </div>

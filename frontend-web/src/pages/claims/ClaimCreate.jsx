@@ -13,17 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { createClaim, submitClaim } from '../../services/claimService';
 import { getPolicies } from '../../services/policyService';
-
-const CLAIM_TYPES = [
-  { value: 0, label: 'Auto' },
-  { value: 1, label: 'Home' },
-  { value: 2, label: 'Health' },
-  { value: 3, label: 'Life' },
-  { value: 4, label: 'Travel' },
-  { value: 5, label: 'Property' },
-  { value: 6, label: 'Liability' },
-  { value: 7, label: 'Other' },
-];
+import { CLAIM_TYPES, getCompatibleClaimType } from '../../utils/policyClaimMapping';
 
 function ClaimCreate({ onBack, onCreated }) {
   const { user } = useAuth();
@@ -72,6 +62,29 @@ function ClaimCreate({ onBack, onCreated }) {
     };
   }, []);
 
+  const selectedPolicy = policies.find((p) => p.id === formData.policyId);
+  const compatibleClaimType = selectedPolicy ? getCompatibleClaimType(selectedPolicy.policyTypeName) : null;
+  const isUnsupportedPolicy = Boolean(selectedPolicy && !compatibleClaimType);
+
+  const handlePolicyChange = (e) => {
+    const policyId = e.target.value;
+    const policy = policies.find((p) => p.id === policyId);
+    const compatible = policy ? getCompatibleClaimType(policy.policyTypeName) : null;
+
+    setFormData((prev) => ({
+      ...prev,
+      policyId,
+      claimType: compatible ? String(compatible.value) : '',
+    }));
+
+    if (errors.policyId) {
+      setErrors((prev) => ({ ...prev, policyId: null }));
+    }
+    if (errors.claimType) {
+      setErrors((prev) => ({ ...prev, claimType: null }));
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -85,9 +98,11 @@ function ClaimCreate({ onBack, onCreated }) {
 
     if (!formData.policyId) {
       newErrors.policyId = 'Please select a policy.';
+    } else if (isUnsupportedPolicy) {
+      newErrors.policyId = 'This policy type is not currently supported for claim creation.';
     }
 
-    if (formData.claimType === '') {
+    if (formData.claimType === '' && !isUnsupportedPolicy) {
       newErrors.claimType = 'Please select a claim type.';
     }
 
@@ -225,11 +240,12 @@ function ClaimCreate({ onBack, onCreated }) {
       <form onSubmit={handleSubmit}>
         {/* Policy Selection */}
         <div className="form-group" style={{ marginBottom: '16px' }}>
-          <label className="form-label">Policy *</label>
+          <label className="form-label" htmlFor="policyId">Policy *</label>
           <select
+            id="policyId"
             name="policyId"
             value={formData.policyId}
-            onChange={handleChange}
+            onChange={handlePolicyChange}
             disabled={loadingPolicies}
             className={`form-select ${errors.policyId ? 'form-input--error' : ''}`}
           >
@@ -242,7 +258,12 @@ function ClaimCreate({ onBack, onCreated }) {
               </option>
             ))}
           </select>
-          {errors.policyId && <div className="form-error">{errors.policyId}</div>}
+          {isUnsupportedPolicy && (
+            <div className="form-error" style={{ color: '#ef4444', fontSize: '0.85rem', marginTop: '6px' }}>
+              This policy type is not currently supported for claim creation.
+            </div>
+          )}
+          {errors.policyId && !isUnsupportedPolicy && <div className="form-error">{errors.policyId}</div>}
           {!loadingPolicies && policies.length === 0 && (
             <div style={{ color: 'var(--color-warning)', fontSize: '0.85rem', marginTop: '6px' }}>
               ⚠️ You don't have any active policies. Create a policy first.
@@ -252,19 +273,26 @@ function ClaimCreate({ onBack, onCreated }) {
 
         {/* Claim Type */}
         <div className="form-group" style={{ marginBottom: '16px' }}>
-          <label className="form-label">Claim Type *</label>
+          <label className="form-label" htmlFor="claimType">Claim Type *</label>
           <select
+            id="claimType"
             name="claimType"
             value={formData.claimType}
             onChange={handleChange}
+            disabled={!selectedPolicy || isUnsupportedPolicy}
             className={`form-select ${errors.claimType ? 'form-input--error' : ''}`}
           >
-            <option value="">Select claim type…</option>
-            {CLAIM_TYPES.map((ct) => (
-              <option key={ct.value} value={ct.value}>
-                {ct.label}
+            {!selectedPolicy ? (
+              <option value="">Select a policy first…</option>
+            ) : isUnsupportedPolicy ? (
+              <option value="">Unsupported policy</option>
+            ) : compatibleClaimType ? (
+              <option value={compatibleClaimType.value}>
+                {compatibleClaimType.label}
               </option>
-            ))}
+            ) : (
+              <option value="">Select claim type…</option>
+            )}
           </select>
           {errors.claimType && <div className="form-error">{errors.claimType}</div>}
         </div>
@@ -332,7 +360,7 @@ function ClaimCreate({ onBack, onCreated }) {
         <button
           type="submit"
           className="btn btn--primary"
-          disabled={submitting}
+          disabled={submitting || isUnsupportedPolicy}
           style={{ width: '100%', padding: '12px', fontSize: '1rem' }}
         >
           {submitting ? 'Creating Claim…' : '📋 Create Claim'}

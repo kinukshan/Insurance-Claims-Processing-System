@@ -93,4 +93,85 @@ describe('ProtectedRoute access control logic', () => {
     })
     expect(dest).toBe('/login')
   })
+
+  // ── Main Payouts Route (/payouts) Protection Tests ──
+
+  it('allows Policyholder and staff roles to access main /payouts route without role restrictions', () => {
+    // Policyholder
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: undefined,
+    })).toBeNull()
+
+    // ClaimsAdjuster
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: undefined,
+    })).toBeNull()
+
+    // Underwriter
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: undefined,
+    })).toBeNull()
+
+    // Admin
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: undefined,
+    })).toBeNull()
+  })
+
+  it('redirects unauthenticated user accessing /payouts to /login', () => {
+    const dest = getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: undefined,
+    })
+    expect(dest).toBe('/login')
+  })
+
+  // ── Payout Approval Route (/payouts/approval) Protection Tests ──
+
+  const PAYOUT_APPROVAL_ROLES = ['Underwriter', 'Admin']
+
+  it('allows Underwriter and Admin to access /payouts/approval', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBeNull()
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBeNull()
+  })
+
+  it('redirects ClaimsAdjuster and Policyholder from /payouts/approval to /dashboard', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBe('/dashboard')
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBe('/dashboard')
+  })
+
+  it('redirects unauthenticated user from /payouts/approval to /login', () => {
+    expect(getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBe('/login')
+  })
 })

@@ -300,7 +300,7 @@ class TestPayoutValidationTimeoutFallback:
         assert any("coverage limit" in v.lower() for v in result.violations)
         assert result.requires_human_approval is True
         assert result.ai_used is False
-        assert result.fallback_used is True
+        assert result.fallback_used is False
 
 
 # ── Health Endpoint Diagnostic Tests ────────────────────────────────────────

@@ -35,7 +35,10 @@ public class PolicyService : IPolicyService
         return policies.Select(MapToDto);
     }
 
-    public async Task<PolicyDto?> GetByIdAsync(Guid id)
+    public Task<PolicyDto?> GetByIdAsync(Guid id) =>
+        GetByIdAsync(id, null, null);
+
+    public async Task<PolicyDto?> GetByIdAsync(Guid id, Guid? requestingUserId, Role? userRole)
     {
         var policy = await _context.Policies
             .Include(p => p.PolicyType)
@@ -43,7 +46,13 @@ public class PolicyService : IPolicyService
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == id);
 
-        return policy == null ? null : MapToDto(policy);
+        if (policy == null)
+            return null;
+
+        if (userRole == Role.Policyholder && requestingUserId.HasValue && policy.PolicyholderId != requestingUserId.Value)
+            throw new UnauthorizedAccessException("You do not have permission to view this policy.");
+
+        return MapToDto(policy);
     }
 
     public async Task<IEnumerable<PolicyDto>> GetByPolicyholderIdAsync(Guid policyholderId)
@@ -71,6 +80,11 @@ public class PolicyService : IPolicyService
         if (policyType == null)
             throw new ArgumentException($"Policy type with ID '{dto.PolicyTypeId}' not found.");
 
+        // Life Insurance has a PROJECT BUSINESS RULE: Deductible = 0
+        var effectiveDeductible = (policyType.Id == PolicyClaimCompatibility.LifeInsuranceId || PolicyClaimCompatibility.IsLifeInsurance(policyType.Name))
+            ? 0m
+            : dto.Deductible;
+
         var policy = new Policy
         {
             Id = Guid.NewGuid(),
@@ -78,7 +92,7 @@ public class PolicyService : IPolicyService
             PolicyholderId = dto.PolicyholderId,
             PolicyTypeId = dto.PolicyTypeId,
             CoverageLimit = dto.CoverageLimit,
-            Deductible = dto.Deductible,
+            Deductible = effectiveDeductible,
             StartDate = dto.StartDate,
             ExpiryDate = dto.ExpiryDate,
             Exclusions = dto.Exclusions,
@@ -102,7 +116,10 @@ public class PolicyService : IPolicyService
         return MapToDto(created);
     }
 
-    public async Task<PolicyDto?> UpdateAsync(Guid id, UpdatePolicyDto dto)
+    public Task<PolicyDto?> UpdateAsync(Guid id, UpdatePolicyDto dto) =>
+        UpdateAsync(id, dto, null, null);
+
+    public async Task<PolicyDto?> UpdateAsync(Guid id, UpdatePolicyDto dto, Guid? requestingUserId, Role? userRole)
     {
         var errors = PolicyValidator.ValidateUpdate(dto);
         if (errors.Count > 0)
@@ -116,12 +133,26 @@ public class PolicyService : IPolicyService
         if (policy == null)
             return null;
 
+        if (userRole == Role.Policyholder && requestingUserId.HasValue && policy.PolicyholderId != requestingUserId.Value)
+            throw new UnauthorizedAccessException("You do not have permission to update this policy.");
+
+        // PolicyService.UpdateAsync must NOT assume policy.PolicyType is already loaded.
+        var policyType = policy.PolicyType ?? await _context.PolicyTypes.FindAsync(policy.PolicyTypeId);
+        var isLife = policyType != null && (policyType.Id == PolicyClaimCompatibility.LifeInsuranceId || PolicyClaimCompatibility.IsLifeInsurance(policyType.Name));
+
         // Apply updates
         if (dto.CoverageLimit.HasValue)
             policy.CoverageLimit = dto.CoverageLimit.Value;
 
         if (dto.Deductible.HasValue)
-            policy.Deductible = dto.Deductible.Value;
+        {
+            // Life Insurance has a PROJECT BUSINESS RULE: Deductible = 0
+            policy.Deductible = isLife ? 0m : dto.Deductible.Value;
+        }
+        else if (isLife && policy.Deductible != 0m)
+        {
+            policy.Deductible = 0m;
+        }
 
         if (dto.ExpiryDate.HasValue)
         {
@@ -144,7 +175,6 @@ public class PolicyService : IPolicyService
         // Recalculate premium if coverage/deductible changed
         if (dto.CoverageLimit.HasValue || dto.Deductible.HasValue)
         {
-            var policyType = policy.PolicyType ?? await _context.PolicyTypes.FindAsync(policy.PolicyTypeId);
             if (policyType != null)
                 policy.Premium = CalculatePremium(policy, policyType);
         }
@@ -371,6 +401,7 @@ public class PolicyService : IPolicyService
     /// <summary>
     /// Deterministic premium calculation:
     /// (basePremiumRate × coverageLimit × riskMultiplier / 1000) - deductible discount
+    /// PROJECT BUSINESS RULE: Simplified project premium calculation; not an actuarial Life Insurance pricing model.
     /// </summary>
     private static decimal CalculatePremium(Policy policy, PolicyType policyType)
     {
@@ -392,6 +423,12 @@ public class PolicyService : IPolicyService
 
     private static PolicyDto MapToDto(Policy policy)
     {
+        var insuranceClass = policy.PolicyType?.InsuranceClass ?? InsuranceClass.General;
+        var insuranceClassCode = policy.PolicyType != null ? policy.PolicyType.InsuranceClass.ToString() : "General";
+        var insuranceClassName = policy.PolicyType != null
+            ? (policy.PolicyType.InsuranceClass == InsuranceClass.LongTerm ? "Long-Term Insurance" : "General Insurance")
+            : "General Insurance";
+
         return new PolicyDto
         {
             Id = policy.Id,
@@ -399,6 +436,9 @@ public class PolicyService : IPolicyService
             PolicyholderId = policy.PolicyholderId,
             PolicyTypeId = policy.PolicyTypeId,
             PolicyTypeName = policy.PolicyType?.Name ?? string.Empty,
+            InsuranceClass = (int)insuranceClass,
+            InsuranceClassCode = insuranceClassCode,
+            InsuranceClassName = insuranceClassName,
             CoverageLimit = policy.CoverageLimit,
             Premium = policy.Premium,
             Deductible = policy.Deductible,

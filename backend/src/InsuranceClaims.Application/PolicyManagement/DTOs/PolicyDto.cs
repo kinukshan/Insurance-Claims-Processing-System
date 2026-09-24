@@ -10,6 +10,9 @@ public class PolicyDto
     public Guid PolicyholderId { get; set; }
     public Guid PolicyTypeId { get; set; }
     public string PolicyTypeName { get; set; } = string.Empty;
+    public int InsuranceClass { get; set; }
+    public string InsuranceClassCode { get; set; } = "General";
+    public string InsuranceClassName { get; set; } = "General Insurance";
     public decimal CoverageLimit { get; set; }
     public decimal Premium { get; set; }
     public decimal Deductible { get; set; }

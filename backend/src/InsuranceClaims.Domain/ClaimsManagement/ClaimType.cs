@@ -12,5 +12,6 @@ public enum ClaimType
     Travel = 4,
     Property = 5,
     Liability = 6,
-    Other = 7
+    Other = 7,
+    Motor = 8
 }

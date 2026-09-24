@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Domain.PolicyManagement.Exceptions;
 using InsuranceClaims.Domain.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -29,7 +30,8 @@ public class ClaimsController : ControllerBase
     private Guid GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                       ?? User.FindFirst("sub")?.Value;
+                       ?? User.FindFirst("sub")?.Value
+                       ?? User.FindFirst("nameid")?.Value;
 
         if (Guid.TryParse(userIdClaim, out var userId))
             return userId;
@@ -74,8 +76,24 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.CreateClaimAsync(userId, dto);
+            if (userId == Guid.Empty)
+                return Unauthorized();
+
+            var role = GetCurrentUserRole();
+            var result = await _claimService.CreateClaimAsync(userId, dto, role);
             return CreatedAtAction(nameof(GetClaim), new { id = result.Id }, result);
+        }
+        catch (PolicyClaimCompatibilityException ex)
+        {
+            return BadRequest(new { errors = new[] { ex.Message } });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (ArgumentException ex)
         {
@@ -104,6 +122,26 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/claims/{id}/document-requirements — Get deterministic required documents and upload status.
+    /// </summary>
+    [HttpGet("{id:guid}/document-requirements")]
+    public async Task<ActionResult<ClaimDocumentRequirementsDto>> GetDocumentRequirements(Guid id)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.GetDocumentRequirementsAsync(id, userId, role);
+            if (result == null) return NotFound(new { message = $"Claim with ID '{id}' was not found." });
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+    }
+
+    /// <summary>
     /// GET /api/claims/my-claims — Get current user's claims.
     /// </summary>
     [HttpGet("my-claims")]
@@ -115,14 +153,26 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/claims — Get all claims (staff view) with optional filters.
+    /// GET /api/claims — Get all claims (scoped to policyholder if caller is Policyholder, otherwise staff view) with optional filters.
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<List<ClaimSummaryDto>>> GetAllClaims(
         [FromQuery] string? status = null,
         [FromQuery] string? search = null)
     {
-        var results = await _claimService.GetAllClaimsAsync(status, search);
+        var role = GetCurrentUserRole();
+        Guid? policyHolderId = null;
+
+        if (role == Role.Policyholder)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+                return Unauthorized();
+
+            policyHolderId = userId;
+        }
+
+        var results = await _claimService.GetAllClaimsAsync(status, search, policyHolderId);
         return Ok(results);
     }
 

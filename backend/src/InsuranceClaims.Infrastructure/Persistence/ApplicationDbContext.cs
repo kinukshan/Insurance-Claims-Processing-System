@@ -39,6 +39,8 @@ public class ApplicationDbContext : DbContext
     // Payout Processing
     public DbSet<Payout> Payouts => Set<Payout>();
     public DbSet<PayoutApproval> PayoutApprovals => Set<PayoutApproval>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<PaymentWebhookEvent> PaymentWebhookEvents => Set<PaymentWebhookEvent>();
 
     // Agent Workflows
     public DbSet<AgentWorkflow> AgentWorkflows => Set<AgentWorkflow>();

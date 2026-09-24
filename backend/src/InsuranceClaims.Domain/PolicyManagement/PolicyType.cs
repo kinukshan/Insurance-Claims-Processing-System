@@ -31,6 +31,11 @@ public class PolicyType : BaseEntity
     public decimal RiskMultiplier { get; set; } = 1.0m;
 
     /// <summary>
+    /// High-level regulatory and reporting insurance classification (General or LongTerm).
+    /// </summary>
+    public InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass InsuranceClass { get; set; } = InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass.General;
+
+    /// <summary>
     /// Whether this policy type is currently offered.
     /// </summary>
     public bool IsActive { get; set; } = true;

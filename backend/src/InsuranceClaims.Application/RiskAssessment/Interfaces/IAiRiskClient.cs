@@ -37,6 +37,12 @@ public class AiRiskRequest
 
     [JsonPropertyName("incident_location")]
     public string IncidentLocation { get; set; } = string.Empty;
+
+    [JsonPropertyName("claim_type")]
+    public string? ClaimType { get; set; }
+
+    [JsonPropertyName("document_flags")]
+    public List<string>? DocumentFlags { get; set; }
 }
 
 /// <summary>

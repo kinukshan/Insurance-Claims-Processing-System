@@ -37,9 +37,14 @@ public class ClaimRepository : IClaimRepository
             .ToListAsync();
     }
 
-    public async Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null)
+    public async Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null, Guid? policyHolderId = null)
     {
         var query = _context.Claims.AsQueryable();
+
+        if (policyHolderId.HasValue)
+        {
+            query = query.Where(c => c.PolicyHolderId == policyHolderId.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(statusFilter) &&
             Enum.TryParse<ClaimStatus>(statusFilter, true, out var status))

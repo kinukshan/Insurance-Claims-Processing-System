@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Security.Claims;
 using InsuranceClaims.Infrastructure.Persistence;
 using InsuranceClaims.Infrastructure.Authentication;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
@@ -62,7 +63,9 @@ public static class DependencyInjection
                     ValidAudience = configuration["Jwt:Audience"] ?? "InsuranceClaims.React",
                     IssuerSigningKey = new SymmetricSecurityKey(
                         Encoding.UTF8.GetBytes(jwtKey)),
-                    ClockSkew = TimeSpan.FromMinutes(1)
+                    ClockSkew = TimeSpan.FromMinutes(1),
+                    RoleClaimType = ClaimTypes.Role,
+                    NameClaimType = ClaimTypes.Name
                 };
             });
         }
@@ -107,7 +110,50 @@ public static class DependencyInjection
         services.AddScoped<IPayoutRepository, PayoutRepository>();
         services.AddScoped<IPayoutService, PayoutService>();
         services.AddScoped<IPayoutContextProvider, EfPayoutContextProvider>();
-        services.AddScoped<IPaymentGateway, SandboxPaymentGateway>();
+        services.AddScoped<IPaymentTransactionRepository, PaymentTransactionRepository>();
+
+        // Payment gateway: Provider selected via configuration ("Mock" or "PayPalSandbox")
+        var paymentProvider = configuration["PaymentGateway:Provider"]
+            ?? configuration["PAYMENT_GATEWAY_PROVIDER"]
+            ?? "Mock";
+
+        if (string.Equals(paymentProvider, "Mock", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<Application.PayoutProcessing.Interfaces.IPaymentGateway, MockPaymentGateway>();
+        }
+        else if (string.Equals(paymentProvider, "PayPalSandbox", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(paymentProvider, "PayPal", StringComparison.OrdinalIgnoreCase))
+        {
+            var paypalMode = configuration["PaymentGateway:PayPal:Mode"]
+                ?? configuration["PAYPAL_MODE"]
+                ?? "Sandbox";
+
+            if (string.Equals(paypalMode, "Live", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Live PayPal mode is strictly prohibited. Only Sandbox is allowed.");
+            }
+
+            var paypalBaseUrl = configuration["PaymentGateway:PayPal:BaseUrl"]
+                ?? configuration["PAYPAL_BASE_URL"]
+                ?? "https://api-m.sandbox.paypal.com";
+
+            services.AddHttpClient<IPayPalAuthService, PayPalAuthService>(client =>
+            {
+                client.BaseAddress = new Uri(paypalBaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+
+            services.AddHttpClient<Application.PayoutProcessing.Interfaces.IPaymentGateway, PayPalSandboxPaymentGateway>(client =>
+            {
+                client.BaseAddress = new Uri(paypalBaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Unsupported payment gateway provider '{paymentProvider}'. Supported values: 'Mock', 'PayPalSandbox'.");
+        }
 
         // Agent integration: ASP.NET Core → Internal AI Service
         services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();

@@ -16,9 +16,22 @@ const STATUSES = [
   'Approved', 'Rejected', 'Withdrawn', 'PayoutProcessing', 'Closed',
 ];
 
+function useOptionalAuth() {
+  try {
+    const auth = useAuth();
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    };
+  } catch {
+    return { role: null, user: null };
+  }
+}
+
 function ClaimsList() {
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role } = useOptionalAuth();
+  const pageTitle = role === 'Policyholder' ? 'My Claims' : 'Claims Management';
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -87,7 +100,7 @@ function ClaimsList() {
     return (
       <div className="fade-in">
         <div className="page-header">
-          <h2>Claims Management</h2>
+          <h2>{pageTitle}</h2>
         </div>
         <div className="loading-state">
           <div className="loading-spinner" />
@@ -102,7 +115,7 @@ function ClaimsList() {
     return (
       <div className="fade-in">
         <div className="page-header">
-          <h2>Claims Management</h2>
+          <h2>{pageTitle}</h2>
         </div>
         <div className="error-state">
           <p>⚠️ {error}</p>
@@ -117,7 +130,7 @@ function ClaimsList() {
   return (
     <div className="fade-in">
       <div className="page-header">
-        <h2>Claims Management</h2>
+        <h2>{pageTitle}</h2>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           {role === 'Policyholder' && (
             <button

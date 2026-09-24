@@ -5,7 +5,6 @@ using InsuranceClaims.Application.PayoutProcessing.Services;
 using InsuranceClaims.Domain.PayoutProcessing;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Enums;
-using InsuranceClaims.Infrastructure.ExternalServices.Payments;
 using InsuranceClaims.Infrastructure.Persistence;
 using InsuranceClaims.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -15,6 +14,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Reflection;
 using System.Security.Claims;
+using System.Text;
+using System.IdentityModel.Tokens.Jwt;
+using InsuranceClaims.Domain.Users;
+using InsuranceClaims.Infrastructure.Authentication;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
 using Xunit;
 using DomainClaim = InsuranceClaims.Domain.ClaimsManagement.Claim;
 using ClaimStatus = InsuranceClaims.Domain.ClaimsManagement.ClaimStatus;
@@ -47,6 +52,7 @@ public class PayoutApprovalPersistenceTests : IDisposable
     private readonly PayoutService _payoutService;
     private readonly FakePaymentGateway _paymentGateway;
     private readonly PayoutsController _controller;
+    private readonly JwtService _jwtService;
 
     public PayoutApprovalPersistenceTests()
     {
@@ -61,11 +67,25 @@ public class PayoutApprovalPersistenceTests : IDisposable
         _paymentGateway = new FakePaymentGateway();
 
         _payoutService = new PayoutService(_repository, _contextProvider, _validationGateway);
+        var transactionRepo = new PaymentTransactionRepository(_context);
         _controller = new PayoutsController(
             _payoutService,
             _paymentGateway,
             _repository,
+            transactionRepo,
             NullLogger<PayoutsController>.Instance);
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "SuperSecretTestKey_AtLeast32CharactersLong_ForHmacSha256!",
+                ["Jwt:Issuer"] = "InsuranceClaims",
+                ["Jwt:Audience"] = "InsuranceClaims.React",
+                ["Jwt:ExpiryMinutes"] = "60"
+            })
+            .Build();
+
+        _jwtService = new JwtService(config);
     }
 
     public void Dispose()
@@ -144,6 +164,41 @@ public class PayoutApprovalPersistenceTests : IDisposable
         var identity = new ClaimsIdentity(claims, "TestAuth");
         var principal = new ClaimsPrincipal(identity);
 
+        _controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { User = principal }
+        };
+    }
+
+    private void SetControllerUserWithToken(string token)
+    {
+        var tokenHandler = new JwtSecurityTokenHandler();
+        var validationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = "InsuranceClaims",
+            ValidAudience = "InsuranceClaims.React",
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes("SuperSecretTestKey_AtLeast32CharactersLong_ForHmacSha256!")),
+            ClockSkew = TimeSpan.FromMinutes(1),
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = ClaimTypes.Name
+        };
+
+        var principal = tokenHandler.ValidateToken(token, validationParameters, out _);
+        _controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { User = principal }
+        };
+    }
+
+    private void SetControllerUserWithClaims(IEnumerable<SecurityClaim> claims)
+    {
+        var identity = new ClaimsIdentity(claims, "TestAuth");
+        var principal = new ClaimsPrincipal(identity);
         _controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext { User = principal }
@@ -439,6 +494,7 @@ public class PayoutApprovalPersistenceTests : IDisposable
             mockService,
             _paymentGateway,
             _repository,
+            new PaymentTransactionRepository(_context),
             NullLogger<PayoutsController>.Instance);
 
         var claims = new List<SecurityClaim>
@@ -520,6 +576,223 @@ public class PayoutApprovalPersistenceTests : IDisposable
         Assert.Equal(EntityState.Unchanged, approvalEntry.State);
     }
 
+    // ── 14. Actual login token JWT tests & identity claim fallbacks ───────
+
+    [Fact]
+    public async Task ApprovePayout_WithActualJwtToken_PersistsRealReviewerNameAndId()
+    {
+        var (_, payout) = await SeedClaimAndPayout(PayoutStatus.PendingApproval);
+        var staffUser = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "alice.underwriter@insurance.com",
+            FirstName = "Alice",
+            LastName = "Underwriter",
+            Role = Role.Underwriter,
+            IsActive = true
+        };
+        var token = _jwtService.GenerateToken(staffUser);
+        SetControllerUserWithToken(token);
+
+        var response = await _controller.ApprovePayout(
+            payout.Id, new PayoutApprovalRequestDto { Comments = "Real token approval" });
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<PayoutDto>(okResult.Value);
+
+        Assert.Equal(PayoutStatus.Approved, dto.Status);
+        Assert.Equal("Alice Underwriter", dto.ApprovedBy);
+        Assert.NotEqual("Unknown Reviewer", dto.ApprovedBy);
+
+        var persistedPayout = await _context.Payouts.FindAsync(payout.Id);
+        Assert.NotNull(persistedPayout);
+        Assert.Equal("Alice Underwriter", persistedPayout.ApprovedBy);
+
+        var savedApproval = await _context.PayoutApprovals
+            .FirstOrDefaultAsync(a => a.PayoutId == payout.Id);
+        Assert.NotNull(savedApproval);
+        Assert.Equal(staffUser.Id, savedApproval.ReviewerId);
+        Assert.Equal("Alice Underwriter", savedApproval.ReviewerName);
+        Assert.NotEqual("Unknown Reviewer", savedApproval.ReviewerName);
+        Assert.Equal(ApprovalDecisionType.Approved, savedApproval.Decision);
+    }
+
+    [Fact]
+    public async Task RejectPayout_WithActualJwtToken_PersistsRealReviewerNameAndId()
+    {
+        var (_, payout) = await SeedClaimAndPayout(PayoutStatus.PendingApproval);
+        var staffUser = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "alice.underwriter@insurance.com",
+            FirstName = "Alice",
+            LastName = "Underwriter",
+            Role = Role.Underwriter,
+            IsActive = true
+        };
+        var token = _jwtService.GenerateToken(staffUser);
+        SetControllerUserWithToken(token);
+
+        var response = await _controller.RejectPayout(
+            payout.Id, new PayoutApprovalRequestDto { Comments = "Real token rejection" });
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<PayoutDto>(okResult.Value);
+        Assert.Equal(PayoutStatus.Rejected, dto.Status);
+
+        var savedApproval = await _context.PayoutApprovals
+            .FirstOrDefaultAsync(a => a.PayoutId == payout.Id);
+        Assert.NotNull(savedApproval);
+        Assert.Equal(staffUser.Id, savedApproval.ReviewerId);
+        Assert.Equal("Alice Underwriter", savedApproval.ReviewerName);
+        Assert.NotEqual("Unknown Reviewer", savedApproval.ReviewerName);
+        Assert.Equal(ApprovalDecisionType.Rejected, savedApproval.Decision);
+    }
+
+    [Fact]
+    public async Task RequestRevision_WithActualJwtToken_PersistsRealReviewerNameAndId()
+    {
+        var (_, payout) = await SeedClaimAndPayout(PayoutStatus.PendingApproval);
+        var adminUser = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "bob.admin@insurance.com",
+            FirstName = "Bob",
+            LastName = "Admin",
+            Role = Role.Admin,
+            IsActive = true
+        };
+        var token = _jwtService.GenerateToken(adminUser);
+        SetControllerUserWithToken(token);
+
+        var response = await _controller.RequestRevision(
+            payout.Id, new PayoutApprovalRequestDto { Comments = "Real token revision request" });
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<PayoutDto>(okResult.Value);
+        Assert.Equal(PayoutStatus.RevisionRequested, dto.Status);
+
+        var savedApproval = await _context.PayoutApprovals
+            .FirstOrDefaultAsync(a => a.PayoutId == payout.Id);
+        Assert.NotNull(savedApproval);
+        Assert.Equal(adminUser.Id, savedApproval.ReviewerId);
+        Assert.Equal("Bob Admin", savedApproval.ReviewerName);
+        Assert.NotEqual("Unknown Reviewer", savedApproval.ReviewerName);
+        Assert.Equal(ApprovalDecisionType.RevisionRequested, savedApproval.Decision);
+    }
+
+    [Fact]
+    public async Task ReviewerIdentity_ResolvesFromGivenNameAndSurname_WhenDirectNameClaimMissing()
+    {
+        var (_, payout) = await SeedClaimAndPayout(PayoutStatus.PendingApproval);
+        var reviewerId = Guid.NewGuid();
+
+        // Token without ClaimTypes.Name or "name": only GivenName + Surname
+        SetControllerUserWithClaims(new[]
+        {
+            new SecurityClaim(ClaimTypes.NameIdentifier, reviewerId.ToString()),
+            new SecurityClaim(ClaimTypes.GivenName, "Carol"),
+            new SecurityClaim(ClaimTypes.Surname, "Underwriter"),
+            new SecurityClaim(ClaimTypes.Email, "carol@claims.com"),
+            new SecurityClaim(ClaimTypes.Role, "Underwriter")
+        });
+
+        var response = await _controller.ApprovePayout(
+            payout.Id, new PayoutApprovalRequestDto { Comments = "Given + Surname resolution" });
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<PayoutDto>(okResult.Value);
+        Assert.Equal("Carol Underwriter", dto.ApprovedBy);
+
+        var savedApproval = await _context.PayoutApprovals
+            .FirstOrDefaultAsync(a => a.PayoutId == payout.Id);
+        Assert.NotNull(savedApproval);
+        Assert.Equal(reviewerId, savedApproval.ReviewerId);
+        Assert.Equal("Carol Underwriter", savedApproval.ReviewerName);
+    }
+
+    [Fact]
+    public async Task ReviewerIdentity_ResolvesFromRawJwtClaims_WhenInboundMappingDisabled()
+    {
+        var (_, payout) = await SeedClaimAndPayout(PayoutStatus.PendingApproval);
+        var reviewerId = Guid.NewGuid();
+
+        // Raw JWT claim names: "sub", "given_name", "family_name", "email", "role"
+        SetControllerUserWithClaims(new[]
+        {
+            new SecurityClaim("sub", reviewerId.ToString()),
+            new SecurityClaim("given_name", "David"),
+            new SecurityClaim("family_name", "Reviewer"),
+            new SecurityClaim("email", "david@claims.com"),
+            new SecurityClaim(ClaimTypes.Role, "Underwriter")
+        });
+
+        var response = await _controller.ApprovePayout(
+            payout.Id, new PayoutApprovalRequestDto { Comments = "Raw JWT claims resolution" });
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<PayoutDto>(okResult.Value);
+        Assert.Equal("David Reviewer", dto.ApprovedBy);
+
+        var savedApproval = await _context.PayoutApprovals
+            .FirstOrDefaultAsync(a => a.PayoutId == payout.Id);
+        Assert.NotNull(savedApproval);
+        Assert.Equal(reviewerId, savedApproval.ReviewerId);
+        Assert.Equal("David Reviewer", savedApproval.ReviewerName);
+    }
+
+    [Fact]
+    public async Task ReviewerIdentity_ResolvesToEmail_WhenFirstAndLastNamesEmpty()
+    {
+        var (_, payout) = await SeedClaimAndPayout(PayoutStatus.PendingApproval);
+        var reviewerId = Guid.NewGuid();
+
+        SetControllerUserWithClaims(new[]
+        {
+            new SecurityClaim(ClaimTypes.NameIdentifier, reviewerId.ToString()),
+            new SecurityClaim(ClaimTypes.Email, "reviewer@claims.com"),
+            new SecurityClaim(ClaimTypes.Role, "Underwriter")
+        });
+
+        var response = await _controller.ApprovePayout(
+            payout.Id, new PayoutApprovalRequestDto { Comments = "Email fallback resolution" });
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<PayoutDto>(okResult.Value);
+        Assert.Equal("reviewer@claims.com", dto.ApprovedBy);
+
+        var savedApproval = await _context.PayoutApprovals
+            .FirstOrDefaultAsync(a => a.PayoutId == payout.Id);
+        Assert.NotNull(savedApproval);
+        Assert.Equal(reviewerId, savedApproval.ReviewerId);
+        Assert.Equal("reviewer@claims.com", savedApproval.ReviewerName);
+    }
+
+    [Fact]
+    public async Task ReviewerIdentity_FallsBackToUnknownReviewer_WhenNoIdentityClaimsExist()
+    {
+        var (_, payout) = await SeedClaimAndPayout(PayoutStatus.PendingApproval);
+
+        // Only role claim, no ID, name, or email
+        SetControllerUserWithClaims(new[]
+        {
+            new SecurityClaim(ClaimTypes.Role, "Underwriter")
+        });
+
+        var response = await _controller.ApprovePayout(
+            payout.Id, new PayoutApprovalRequestDto { Comments = "No identity claims" });
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<PayoutDto>(okResult.Value);
+        Assert.Equal("Unknown Reviewer", dto.ApprovedBy);
+
+        var savedApproval = await _context.PayoutApprovals
+            .FirstOrDefaultAsync(a => a.PayoutId == payout.Id);
+        Assert.NotNull(savedApproval);
+        Assert.Equal(Guid.Empty, savedApproval.ReviewerId);
+        Assert.Equal("Unknown Reviewer", savedApproval.ReviewerName);
+    }
+
     // ── Test doubles ──────────────────────────────────────────────────────
 
     private class ConcurrencyFailingPayoutService : IPayoutService
@@ -531,9 +804,10 @@ public class PayoutApprovalPersistenceTests : IDisposable
         }
 
         public Task<PayoutDto> CalculatePayoutAsync(Guid claimId) => throw new NotImplementedException();
-        public Task<PayoutDto?> GetByIdAsync(Guid id) => throw new NotImplementedException();
-        public Task<PayoutDto?> GetByClaimIdAsync(Guid claimId) => throw new NotImplementedException();
+        public Task<PayoutDto?> GetByIdAsync(Guid id, Guid? userId = null, Role? role = null) => throw new NotImplementedException();
+        public Task<PayoutDto?> GetByClaimIdAsync(Guid claimId, Guid? userId = null, Role? role = null) => throw new NotImplementedException();
         public Task<PaginatedResult<PayoutDto>> GetHistoryAsync(PayoutHistoryQueryDto query) => throw new NotImplementedException();
+        public Task<PaginatedResult<PayoutDto>> GetMyPayoutsAsync(Guid policyholderId, PayoutHistoryQueryDto query) => throw new NotImplementedException();
         public Task<PayoutDto> UpdatePayoutAsync(Guid id) => throw new NotImplementedException();
         public Task<PayoutDto> RejectPayoutAsync(Guid id, string comments, Guid reviewerId, string reviewerName) => throw new NotImplementedException();
         public Task<PayoutDto> RequestRevisionAsync(Guid id, string comments, Guid reviewerId, string reviewerName) => throw new NotImplementedException();
@@ -571,16 +845,40 @@ public class PayoutApprovalPersistenceTests : IDisposable
         }
     }
 
-    private class FakePaymentGateway : IPaymentGateway
+    private class FakePaymentGateway : InsuranceClaims.Application.PayoutProcessing.Interfaces.IPaymentGateway
     {
-        public Task<PaymentResult> ProcessPaymentAsync(Guid payoutId, decimal amount, bool simulateFailure = false)
+        public Task<PaymentGatewayResult> CreatePayoutAsync(
+            PaymentGatewayRequest request,
+            CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(new PaymentResult
+            return Task.FromResult(new PaymentGatewayResult
             {
-                Success = !simulateFailure,
-                PaymentReference = $"PAY-{Guid.NewGuid():N}"[..16].ToUpper(),
-                ProcessedAt = DateTime.UtcNow
+                Success = true,
+                Provider = "Mock",
+                ProviderTransactionId = $"TX-{Guid.NewGuid():N}"[..16].ToUpper(),
+                ProviderStatus = "succeeded",
+                CreatedAt = DateTime.UtcNow
             });
+        }
+
+        public Task<PaymentGatewayStatusResult?> GetPaymentStatusAsync(
+            string providerTransactionId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<PaymentGatewayStatusResult?>(new PaymentGatewayStatusResult
+            {
+                ProviderTransactionId = providerTransactionId,
+                Status = "succeeded",
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+
+        public Task<bool> ValidateWebhookAsync(
+            string payload,
+            IDictionary<string, string> headers,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
         }
     }
 }

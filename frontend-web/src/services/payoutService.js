@@ -43,6 +43,18 @@ export async function getPayoutHistory({ page = 1, pageSize = 20, status, sortBy
 }
 
 /**
+ * Get paginated payouts for the logged-in policyholder's own claims.
+ */
+export async function getMyPayouts({ page = 1, pageSize = 20, status, sortBy, sortDescending } = {}) {
+  const params = new URLSearchParams({ page, pageSize });
+  if (status !== undefined && status !== null && status !== '') params.set('status', status);
+  if (sortBy) params.set('sortBy', sortBy);
+  if (sortDescending !== undefined) params.set('sortDescending', sortDescending);
+
+  return apiFetch(`/payouts/my?${params}`);
+}
+
+/**
  * Approve a payout. Reviewer identity from server auth context.
  */
 export async function approvePayout(id, comments = '') {
@@ -91,4 +103,25 @@ export async function updatePayout(id) {
  */
 export async function deletePayout(id) {
   return apiFetch(`/payouts/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * Get payment transactions for a payout.
+ */
+export async function getPaymentTransactions(payoutId) {
+  return apiFetch(`/payouts/${payoutId}/payments`);
+}
+
+/**
+ * Sync / refresh payment status with provider.
+ */
+export async function syncPaymentStatus(id) {
+  return apiFetch(`/payouts/${id}/payments/sync`, { method: 'POST' });
+}
+
+/**
+ * Get active payment provider info from backend.
+ */
+export async function getPaymentProviderInfo() {
+  return apiFetch('/payouts/provider-info');
 }

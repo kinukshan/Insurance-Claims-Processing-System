@@ -2,6 +2,8 @@ using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Validators;
 using InsuranceClaims.Domain.ClaimsManagement;
+using InsuranceClaims.Domain.PolicyManagement;
+using InsuranceClaims.Domain.PolicyManagement.Exceptions;
 using InsuranceClaims.Domain.Users;
 
 namespace InsuranceClaims.Application.ClaimsManagement.Services;
@@ -36,13 +38,55 @@ public class ClaimService : IClaimService
     private static bool IsStaffRole(Role role) =>
         role is Role.ClaimsAdjuster or Role.Underwriter or Role.Admin;
 
-    public async Task<ClaimResponseDto> CreateClaimAsync(Guid policyHolderId, CreateClaimDto dto)
+    public Task<ClaimResponseDto> CreateClaimAsync(Guid policyHolderId, CreateClaimDto dto) =>
+        CreateClaimAsync(policyHolderId, dto, Role.Policyholder);
+
+    public async Task<ClaimResponseDto> CreateClaimAsync(Guid requestingUserId, CreateClaimDto dto, Role userRole = Role.Policyholder)
     {
         // Validate input
         var errors = CreateClaimValidator.Validate(dto);
         if (errors.Count > 0)
             throw new ArgumentException(string.Join("; ", errors));
 
+        // 3. Load target policy WITH PolicyType
+        var policy = await _policyValidation.GetPolicyDetailsAsync(dto.PolicyId);
+        // 4. If policy does not exist -> 404
+        if (policy == null)
+            throw new KeyNotFoundException($"Policy with ID '{dto.PolicyId}' does not exist.");
+
+        Guid policyHolderId;
+
+        if (userRole == Role.Policyholder)
+        {
+            // 5. Verify policy belongs to authenticated Policyholder
+            // 6. If not owner -> 403
+            var ownsPolicy = await _policyValidation.ValidatePolicyOwnershipAsync(dto.PolicyId, requestingUserId);
+            if (!ownsPolicy || (policy.PolicyholderId != Guid.Empty && policy.PolicyholderId != requestingUserId))
+                throw new UnauthorizedAccessException("You do not have permission to submit a claim against this policy.");
+
+            policyHolderId = requestingUserId;
+        }
+        else
+        {
+            // Staff claim creation:
+            // 2. Authorize allowed staff role
+            if (!IsStaffRole(userRole))
+                throw new UnauthorizedAccessException("You do not have permission to submit a claim.");
+
+            // 4. Derive owner from policy
+            // 5. Set Claim.PolicyHolderId = policy.PolicyholderId (never staffUserId!)
+            policyHolderId = policy.PolicyholderId;
+        }
+
+        // 7. ONLY THEN check policy/claim compatibility
+        if (!PolicyClaimCompatibility.IsCompatible(policy.PolicyTypeName, dto.ClaimType))
+        {
+            // 8. If incompatible -> PolicyClaimCompatibilityException -> 400
+            throw new PolicyClaimCompatibilityException(
+                PolicyClaimCompatibility.GetErrorMessage(policy.PolicyTypeName, dto.ClaimType));
+        }
+
+        // 9. Create claim
         var claimNumber = await _claimRepository.GenerateClaimNumberAsync();
 
         var claim = new Claim
@@ -81,9 +125,9 @@ public class ClaimService : IClaimService
         return claims.Select(MapToSummary).ToList();
     }
 
-    public async Task<List<ClaimSummaryDto>> GetAllClaimsAsync(string? statusFilter = null, string? searchTerm = null)
+    public async Task<List<ClaimSummaryDto>> GetAllClaimsAsync(string? statusFilter = null, string? searchTerm = null, Guid? policyHolderId = null)
     {
-        var claims = await _claimRepository.GetAllAsync(statusFilter, searchTerm);
+        var claims = await _claimRepository.GetAllAsync(statusFilter, searchTerm, policyHolderId);
         return claims.Select(MapToSummary).ToList();
     }
 
@@ -313,14 +357,149 @@ public class ClaimService : IClaimService
         if (!IsStaffRole(userRole) && claim.PolicyHolderId != requestingUserId)
             throw new UnauthorizedAccessException("You do not have permission to verify documents for this claim.");
 
-        var documentDtos = claim.Documents.Select(MapDocumentToDto).ToList();
+        var docs = claim.Documents ?? new List<ClaimDocument>();
 
-        return await _verificationClient.VerifyDocumentsAsync(
-            claimId,
+        // 1. Fetch file bytes for each document safely for deterministic inspection
+        var fileBytesMap = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var doc in docs)
+        {
+            if (!string.IsNullOrWhiteSpace(doc.FileUrl))
+            {
+                try
+                {
+                    fileBytesMap[doc.FileUrl] = await _storageService.GetFileBytesAsync(doc.FileUrl);
+                }
+                catch
+                {
+                    fileBytesMap[doc.FileUrl] = null;
+                }
+            }
+        }
+
+        // 2. Perform deterministic document integrity validation
+        var localEval = DocumentIntegrityValidator.EvaluateClaimDocuments(
             claim.ClaimType.ToString(),
-            documentDtos,
-            claim.IncidentDate,
-            claim.ClaimedAmount);
+            docs,
+            url => fileBytesMap.TryGetValue(url, out var b) ? b : null
+        );
+
+        // 3. Update document verification statuses in database
+        bool docUpdated = false;
+        foreach (var doc in docs)
+        {
+            var docFinding = localEval.Findings.FirstOrDefault(f => f.DocumentId == doc.Id);
+            if (docFinding != null)
+            {
+                if (doc.VerificationStatus != docFinding.Status)
+                {
+                    doc.VerificationStatus = docFinding.Status;
+                    docUpdated = true;
+                }
+            }
+            else if (doc.VerificationStatus != DocumentVerificationStatus.Rejected &&
+                     doc.VerificationStatus != DocumentVerificationStatus.Verified)
+            {
+                doc.VerificationStatus = DocumentVerificationStatus.Verified;
+                docUpdated = true;
+            }
+        }
+        if (docUpdated)
+        {
+            await _claimRepository.UpdateAsync(claim);
+        }
+
+        var documentDtos = docs.Select(MapDocumentToDto).ToList();
+
+        // 4. Call AI verification client (which also receives file metadata)
+        DocumentVerificationResultDto aiResult;
+        try
+        {
+            aiResult = await _verificationClient.VerifyDocumentsAsync(
+                claimId,
+                claim.ClaimType.ToString(),
+                documentDtos,
+                claim.IncidentDate,
+                claim.ClaimedAmount);
+        }
+        catch
+        {
+            // Deterministic fallback if AI service is completely unavailable
+            aiResult = new DocumentVerificationResultDto(
+                Complete: !localEval.HasMismatches && !localEval.HasUnreadable,
+                MissingItems: new List<string>(),
+                Inconsistencies: new List<DocumentInconsistencyDto>(),
+                Warnings: new List<string> { "AI verification service unavailable; deterministic rule-based validation applied." },
+                AiUsed: false,
+                AiProvider: null,
+                AiModel: null,
+                ReasoningSummary: null,
+                FallbackUsed: true
+            );
+        }
+
+        // 5. Merge deterministic findings into result (Authoritative deterministic rules)
+        var mergedInconsistencies = new List<DocumentInconsistencyDto>(aiResult.Inconsistencies ?? new List<DocumentInconsistencyDto>());
+        foreach (var finding in localEval.Findings)
+        {
+            if (!mergedInconsistencies.Any(i => i.Field.Equals(finding.DocumentType, StringComparison.OrdinalIgnoreCase) && i.Description.Equals(finding.Description, StringComparison.OrdinalIgnoreCase)))
+            {
+                mergedInconsistencies.Add(new DocumentInconsistencyDto(
+                    finding.DocumentType,
+                    finding.Description,
+                    finding.Severity.ToString().ToLowerInvariant()
+                ));
+            }
+        }
+
+        var isComplete = aiResult.Complete && !localEval.HasMismatches && !localEval.HasUnreadable;
+
+        return aiResult with
+        {
+            Complete = isComplete,
+            Inconsistencies = mergedInconsistencies
+        };
+    }
+
+    public async Task<ClaimDocumentRequirementsDto?> GetDocumentRequirementsAsync(Guid claimId, Guid requestingUserId, Role userRole)
+    {
+        var claim = await _claimRepository.GetByIdWithDocumentsAsync(claimId);
+        if (claim == null) return null;
+
+        // Staff roles can view any claim; policyholders can only see their own
+        if (!IsStaffRole(userRole) && claim.PolicyHolderId != requestingUserId)
+            throw new UnauthorizedAccessException("You do not have permission to view this claim.");
+
+        var claimTypeStr = claim.ClaimType.ToString();
+        var requiredList = DocumentChecklistValidator.GetRequiredDocuments(claimTypeStr);
+
+        var submittedNormalized = new HashSet<string>(
+            (claim.Documents ?? new List<ClaimDocument>())
+                .Select(d => DocumentChecklistValidator.NormalizeDocumentType(d.DocumentType)),
+            StringComparer.OrdinalIgnoreCase);
+
+        var items = requiredList.Select(req =>
+        {
+            var normalizedReq = DocumentChecklistValidator.NormalizeDocumentType(req);
+            var isUploaded = submittedNormalized.Contains(normalizedReq);
+            return new ClaimDocumentRequirementItemDto(
+                req,
+                true,
+                isUploaded
+            );
+        }).ToList();
+
+        var uploadedCount = items.Count(i => i.Uploaded);
+        var missingCount = items.Count - uploadedCount;
+
+        return new ClaimDocumentRequirementsDto(
+            claim.Id,
+            claimTypeStr,
+            items,
+            items.Count,
+            uploadedCount,
+            missingCount,
+            missingCount == 0
+        );
     }
 
     // ───── Mapping helpers ─────

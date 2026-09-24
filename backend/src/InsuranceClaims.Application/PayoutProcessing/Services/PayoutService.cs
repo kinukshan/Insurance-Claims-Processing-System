@@ -1,6 +1,9 @@
 using InsuranceClaims.Application.PayoutProcessing.DTOs;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
 using InsuranceClaims.Domain.PayoutProcessing;
+using InsuranceClaims.Domain.PolicyManagement;
+using InsuranceClaims.Domain.PolicyManagement.Exceptions;
+using InsuranceClaims.Domain.Users;
 
 namespace InsuranceClaims.Application.PayoutProcessing.Services;
 
@@ -29,13 +32,13 @@ public class PayoutService : IPayoutService
     /// <inheritdoc />
     public async Task<PayoutDto> CalculatePayoutAsync(Guid claimId)
     {
-        // Retrieve trusted context from backend — never from client inputs
+        // 2 & 3. Retrieve trusted context from backend — includes claim-status eligibility
         var context = await _contextProvider.GetPayoutContextAsync(claimId)
             ?? throw new InvalidOperationException(
                 $"No eligible payout context found for claim '{claimId}'. " +
                 "The claim may not exist, may not be approved, or policy data is unavailable.");
 
-        // Check if a payout already exists for this claim
+        // 4. Duplicate payout protection: existing non-draft payout throws conflict
         var existing = await _repository.GetByClaimIdAsync(claimId);
         if (existing is not null && !existing.CanBeDeleted())
         {
@@ -43,21 +46,37 @@ public class PayoutService : IPayoutService
                 $"A payout already exists for claim '{claimId}' with status '{existing.Status}'.");
         }
 
-        // Build payout from trusted data
+        // 5. Policy/claim compatibility pre-check (fails closed)
+        if (!PolicyClaimCompatibility.IsCompatible(context.PolicyType, context.ClaimType))
+        {
+            throw new PolicyClaimCompatibilityException(
+                PolicyClaimCompatibility.GetErrorMessage(context.PolicyType, context.ClaimType));
+        }
+
+        // 6. Determine Life condition (strictly AND: Life Insurance AND Life claim)
+        var isLife = PolicyClaimCompatibility.IsLifeInsurance(context.PolicyType)
+                  && PolicyClaimCompatibility.IsLifeClaim(context.ClaimType);
+
+        // 7. Compute effective deductible (defense-in-depth: Life always 0, even if legacy/tampered > 0)
+        var effectiveDeductible = isLife ? 0m : context.Deductible;
+
+        // 8, 9, 10. Build candidate payout IN MEMORY
         var payout = new Payout
         {
             Id = Guid.NewGuid(),
             ClaimId = context.ClaimId,
             ApprovedClaimAmount = context.ApprovedClaimAmount,
             CoverageLimit = context.CoverageLimit,
-            Deductible = context.Deductible,
+            Deductible = effectiveDeductible,
             Status = PayoutStatus.Draft
         };
 
-        // Deterministic calculation
+        // Deterministic calculation:
+        // eligible = min(ApprovedClaimAmount, CoverageLimit)
+        // final = eligible - effectiveDeductible (for Life: effectiveDeductible=0 => eligible)
         payout.CalculatePayout();
 
-        // Request validation from the Validation/Safety Agent
+        // 11. Request deterministic validation from the Validation/Safety Agent
         var validationResult = await _validationAgent.ValidatePayoutProposalAsync(
             new PayoutValidationRequest
             {
@@ -66,17 +85,19 @@ public class PayoutService : IPayoutService
                 ClaimType = context.ClaimType,
                 ApprovedClaimAmount = context.ApprovedClaimAmount,
                 CoverageLimit = context.CoverageLimit,
-                Deductible = context.Deductible,
+                Deductible = effectiveDeductible,
                 ProposedPayout = payout.ProposedPayout
             });
 
+        // 12. If deterministic validation fails -> stop immediately (no mutations, draft preserved)
         if (!validationResult.Valid)
         {
             throw new InvalidOperationException(
                 $"Payout proposal failed validation: {string.Join("; ", validationResult.Violations)}");
         }
 
-        // If a replaceable draft exists, delete it first
+        // 13. Validation passed -> atomic draft replacement and persistence
+        // Replaceable draft is only deleted after new candidate has fully passed validation
         if (existing is not null && existing.CanBeDeleted())
         {
             await _repository.DeleteAsync(existing);
@@ -97,22 +118,40 @@ public class PayoutService : IPayoutService
     }
 
     /// <inheritdoc />
-    public async Task<PayoutDto?> GetByIdAsync(Guid id)
+    public async Task<PayoutDto?> GetByIdAsync(Guid id, Guid? userId = null, Role? role = null)
     {
         var payout = await _repository.GetByIdAsync(id);
         if (payout is null) return null;
+
+        if (role == Role.Policyholder && userId.HasValue)
+        {
+            if (payout.Claim == null || payout.Claim.PolicyHolderId != userId.Value)
+            {
+                throw new UnauthorizedAccessException("You do not have permission to view this payout.");
+            }
+        }
+
         var dto = MapToDto(payout);
-        dto.ClaimNumber = await GetClaimNumberAsync(payout.ClaimId);
+        dto.ClaimNumber ??= await GetClaimNumberAsync(payout.ClaimId);
         return dto;
     }
 
     /// <inheritdoc />
-    public async Task<PayoutDto?> GetByClaimIdAsync(Guid claimId)
+    public async Task<PayoutDto?> GetByClaimIdAsync(Guid claimId, Guid? userId = null, Role? role = null)
     {
         var payout = await _repository.GetByClaimIdAsync(claimId);
         if (payout is null) return null;
+
+        if (role == Role.Policyholder && userId.HasValue)
+        {
+            if (payout.Claim == null || payout.Claim.PolicyHolderId != userId.Value)
+            {
+                throw new UnauthorizedAccessException("You do not have permission to view this payout.");
+            }
+        }
+
         var dto = MapToDto(payout);
-        dto.ClaimNumber = await GetClaimNumberAsync(claimId);
+        dto.ClaimNumber ??= await GetClaimNumberAsync(claimId);
         return dto;
     }
 
@@ -126,7 +165,30 @@ public class PayoutService : IPayoutService
         foreach (var item in items)
         {
             var dto = MapToDto(item);
-            dto.ClaimNumber = await GetClaimNumberAsync(item.ClaimId);
+            dto.ClaimNumber ??= await GetClaimNumberAsync(item.ClaimId);
+            dtos.Add(dto);
+        }
+
+        return new PaginatedResult<PayoutDto>
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = query.Page,
+            PageSize = query.PageSize
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<PaginatedResult<PayoutDto>> GetMyPayoutsAsync(Guid policyholderId, PayoutHistoryQueryDto query)
+    {
+        var (items, totalCount) = await _repository.GetPagedByPolicyholderAsync(
+            policyholderId, query.Page, query.PageSize, query.StatusFilter, query.SortBy, query.SortDescending);
+
+        var dtos = new List<PayoutDto>(items.Count);
+        foreach (var item in items)
+        {
+            var dto = MapToDto(item);
+            dto.ClaimNumber ??= await GetClaimNumberAsync(item.ClaimId);
             dtos.Add(dto);
         }
 
@@ -267,6 +329,7 @@ public class PayoutService : IPayoutService
         {
             Id = payout.Id,
             ClaimId = payout.ClaimId,
+            ClaimNumber = payout.Claim?.ClaimNumber,
             ApprovedClaimAmount = payout.ApprovedClaimAmount,
             CoverageLimit = payout.CoverageLimit,
             Deductible = payout.Deductible,
@@ -276,6 +339,7 @@ public class PayoutService : IPayoutService
             ApprovedBy = payout.ApprovedBy,
             ApprovalTimestamp = payout.ApprovalTimestamp,
             PaymentReference = payout.PaymentReference,
+            PaymentProvider = payout.PaymentTransactions?.OrderByDescending(t => t.CreatedAt).FirstOrDefault()?.Provider,
             CreatedAt = payout.CreatedAt,
             UpdatedAt = payout.UpdatedAt,
             Approvals = payout.Approvals.Select(a => new PayoutApprovalDto

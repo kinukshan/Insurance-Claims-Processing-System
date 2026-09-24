@@ -9,9 +9,9 @@ namespace InsuranceClaims.UnitTests.ClaimsManagement;
 
 public class ClaimServiceTests
 {
-    private static readonly Guid UserId = Guid.NewGuid();
-    private static readonly Guid OtherUserId = Guid.NewGuid();
-    private static readonly Guid PolicyId = Guid.NewGuid();
+    internal static readonly Guid UserId = Guid.NewGuid();
+    internal static readonly Guid OtherUserId = Guid.NewGuid();
+    internal static readonly Guid PolicyId = Guid.NewGuid();
 
     private readonly FakeClaimRepository _claimRepository;
     private readonly FakeDocumentStorageService _storageService;
@@ -609,8 +609,13 @@ internal class FakeClaimRepository : IClaimRepository
     public Task<List<Claim>> GetByPolicyHolderIdAsync(Guid policyHolderId) =>
         Task.FromResult(_claims.Where(c => c.PolicyHolderId == policyHolderId).ToList());
 
-    public Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null) =>
-        Task.FromResult(_claims.ToList());
+    public Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null, Guid? policyHolderId = null)
+    {
+        var result = _claims.AsEnumerable();
+        if (policyHolderId.HasValue)
+            result = result.Where(c => c.PolicyHolderId == policyHolderId.Value);
+        return Task.FromResult(result.ToList());
+    }
 
     public Task<Claim> AddAsync(Claim claim)
     {
@@ -668,11 +673,36 @@ internal class FakeDocumentStorageService : IDocumentStorageService
 
 internal class FakePolicyValidationService : IPolicyValidationService
 {
+    public bool PolicyOwnershipResult { get; set; } = true;
+    public Guid? PolicyOwnerId { get; set; } = null;
+    public string PolicyTypeName { get; set; } = "Motor Insurance";
+    public bool PolicyExists { get; set; } = true;
+
     public Task<CoverageValidationResultDto> ValidateCoverageAsync(Guid policyId, string claimType, decimal claimedAmount) =>
         Task.FromResult(new CoverageValidationResultDto(true, true, 100000m, 500m, claimType, new List<string>()));
 
     public Task<bool> IsPolicyActiveAsync(Guid policyId) =>
         Task.FromResult(true);
+
+    public Task<bool> ValidatePolicyOwnershipAsync(Guid policyId, Guid policyHolderId) =>
+        Task.FromResult(PolicyOwnershipResult);
+
+    public Task<Guid?> GetPolicyOwnerIdAsync(Guid policyId) =>
+        Task.FromResult<Guid?>(PolicyOwnerId ?? Guid.NewGuid());
+
+    public Task<PolicyValidationDetailsDto?> GetPolicyDetailsAsync(Guid policyId)
+    {
+        if (!PolicyExists) return Task.FromResult<PolicyValidationDetailsDto?>(null);
+
+        var ownerId = PolicyOwnershipResult ? (PolicyOwnerId ?? Guid.Empty) : Guid.NewGuid();
+        return Task.FromResult<PolicyValidationDetailsDto?>(new PolicyValidationDetailsDto(
+            policyId,
+            ownerId,
+            Guid.NewGuid(),
+            PolicyTypeName,
+            true
+        ));
+    }
 }
 
 internal class FakeDocumentVerificationClient : IDocumentVerificationClient

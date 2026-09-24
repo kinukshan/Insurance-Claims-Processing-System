@@ -6,10 +6,23 @@ import PolicyCard from '../../components/policy/PolicyCard'
 import { getPolicies, deletePolicy } from '../../services/policyService'
 import { useAuth } from '../../context/AuthContext'
 
+function useOptionalAuth() {
+  try {
+    const auth = useAuth()
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    }
+  } catch {
+    return { role: null, user: null }
+  }
+}
+
 const STATUS_OPTIONS = ['All', 'Draft', 'Active', 'Expired', 'Lapsed', 'Cancelled']
 
 function PolicyList({ onSelectPolicy, onCreatePolicy }) {
-  const { user } = useAuth()
+  const { user, role } = useOptionalAuth()
+  const isPolicyholder = role === 'Policyholder' || user?.role === 'Policyholder'
   const [policies, setPolicies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -59,7 +72,7 @@ function PolicyList({ onSelectPolicy, onCreatePolicy }) {
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ margin: 0 }}>Policies</h2>
+        <h2 style={{ margin: 0 }}>{isPolicyholder ? 'My Policies' : 'Policies'}</h2>
         {onCreatePolicy && (
           <button
             onClick={onCreatePolicy}

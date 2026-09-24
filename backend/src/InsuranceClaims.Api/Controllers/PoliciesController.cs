@@ -23,11 +23,24 @@ public class PoliciesController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/policies — Retrieve all policies.
+    /// GET /api/policies — Retrieve policies.
+    /// For Policyholder role: returns only policies belonging to the authenticated user.
+    /// For Staff roles: returns all policies.
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<PolicyDto>>> GetAll()
     {
+        var role = GetCurrentUserRole();
+        if (role == Role.Policyholder)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+                return Unauthorized();
+
+            var userPolicies = await _policyService.GetByPolicyholderIdAsync(userId);
+            return Ok(userPolicies);
+        }
+
         var policies = await _policyService.GetAllAsync();
         return Ok(policies);
     }
@@ -38,11 +51,20 @@ public class PoliciesController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<PolicyDto>> GetById(Guid id)
     {
-        var policy = await _policyService.GetByIdAsync(id);
-        if (policy == null)
-            return NotFound(new { message = $"Policy with ID '{id}' not found." });
+        try
+        {
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var policy = await _policyService.GetByIdAsync(id, userId, role);
+            if (policy == null)
+                return NotFound(new { message = $"Policy with ID '{id}' not found." });
 
-        return Ok(policy);
+            return Ok(policy);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
     }
 
     /// <summary>
@@ -51,6 +73,14 @@ public class PoliciesController : ControllerBase
     [HttpGet("policyholder/{policyholderId:guid}")]
     public async Task<ActionResult<IEnumerable<PolicyDto>>> GetByPolicyholder(Guid policyholderId)
     {
+        var role = GetCurrentUserRole();
+        if (role == Role.Policyholder)
+        {
+            var userId = GetCurrentUserId();
+            if (policyholderId != userId)
+                return Forbid();
+        }
+
         var policies = await _policyService.GetByPolicyholderIdAsync(policyholderId);
         return Ok(policies);
     }
@@ -83,8 +113,8 @@ public class PoliciesController : ControllerBase
         try
         {
             // For Policyholder role, override PolicyholderId with authenticated user's ID
-            var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value;
-            if (roleClaim == "Policyholder")
+            var role = GetCurrentUserRole();
+            if (role == Role.Policyholder)
             {
                 var userId = GetCurrentUserId();
                 if (userId == Guid.Empty)
@@ -114,11 +144,17 @@ public class PoliciesController : ControllerBase
 
         try
         {
-            var updated = await _policyService.UpdateAsync(id, dto);
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var updated = await _policyService.UpdateAsync(id, dto, userId, role);
             if (updated == null)
                 return NotFound(new { message = $"Policy with ID '{id}' not found." });
 
             return Ok(updated);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
         }
         catch (ArgumentException ex)
         {
@@ -166,11 +202,27 @@ public class PoliciesController : ControllerBase
     [HttpPost("{id:guid}/calculate-premium")]
     public async Task<ActionResult<PremiumCalculationResultDto>> CalculatePremium(Guid id)
     {
-        var result = await _policyService.CalculatePremiumAsync(id);
-        if (result == null)
-            return NotFound(new { message = $"Policy with ID '{id}' not found." });
+        try
+        {
+            var role = GetCurrentUserRole();
+            if (role == Role.Policyholder)
+            {
+                var userId = GetCurrentUserId();
+                var policy = await _policyService.GetByIdAsync(id, userId, role);
+                if (policy == null)
+                    return NotFound(new { message = $"Policy with ID '{id}' not found." });
+            }
 
-        return Ok(result);
+            var result = await _policyService.CalculatePremiumAsync(id);
+            if (result == null)
+                return NotFound(new { message = $"Policy with ID '{id}' not found." });
+
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
     }
 
     /// <summary>
@@ -179,8 +231,24 @@ public class PoliciesController : ControllerBase
     [HttpGet("{id:guid}/coverage")]
     public async Task<ActionResult<IEnumerable<PolicyCoverageDto>>> GetCoverage(Guid id)
     {
-        var coverage = await _policyService.GetCoverageAsync(id);
-        return Ok(coverage);
+        try
+        {
+            var role = GetCurrentUserRole();
+            if (role == Role.Policyholder)
+            {
+                var userId = GetCurrentUserId();
+                var policy = await _policyService.GetByIdAsync(id, userId, role);
+                if (policy == null)
+                    return NotFound(new { message = $"Policy with ID '{id}' not found." });
+            }
+
+            var coverage = await _policyService.GetCoverageAsync(id);
+            return Ok(coverage);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
     }
 
     /// <summary>
@@ -189,17 +257,34 @@ public class PoliciesController : ControllerBase
     [HttpPost("{id:guid}/renew")]
     public async Task<ActionResult<PolicyRenewalResultDto>> Renew(Guid id)
     {
-        var result = await _policyService.RenewPolicyAsync(id);
-        if (!result.Success)
-            return BadRequest(result);
+        try
+        {
+            var role = GetCurrentUserRole();
+            if (role == Role.Policyholder)
+            {
+                var userId = GetCurrentUserId();
+                var policy = await _policyService.GetByIdAsync(id, userId, role);
+                if (policy == null)
+                    return NotFound(new { message = $"Policy with ID '{id}' not found." });
+            }
 
-        return Ok(result);
+            var result = await _policyService.RenewPolicyAsync(id);
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
     }
 
     /// <summary>
     /// POST /api/policies/validate-expiry — Validate and update expired policies.
     /// </summary>
     [HttpPost("validate-expiry")]
+    [Authorize(Roles = "Underwriter,Admin")]
     public async Task<ActionResult<IEnumerable<PolicyDto>>> ValidateExpiry()
     {
         var expired = await _policyService.ValidateExpiryAsync();
@@ -213,7 +298,8 @@ public class PoliciesController : ControllerBase
     private Guid GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                       ?? User.FindFirst("sub")?.Value;
+                       ?? User.FindFirst("sub")?.Value
+                       ?? User.FindFirst("nameid")?.Value;
 
         if (Guid.TryParse(userIdClaim, out var userId))
             return userId;

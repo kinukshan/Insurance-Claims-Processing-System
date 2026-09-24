@@ -34,7 +34,12 @@ public class PolicyTypesController : ControllerBase
                 pt.Name,
                 pt.Description,
                 pt.DefaultCoverageLimit,
-                pt.DefaultDeductible
+                pt.DefaultDeductible,
+                InsuranceClass = (int)pt.InsuranceClass,
+                InsuranceClassCode = pt.InsuranceClass.ToString(),
+                InsuranceClassName = pt.InsuranceClass == InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass.LongTerm
+                    ? "Long-Term Insurance"
+                    : "General Insurance"
             })
             .ToListAsync();
 

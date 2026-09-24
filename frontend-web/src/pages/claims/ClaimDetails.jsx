@@ -4,7 +4,7 @@
  * and Document Verification Agent integration with Gemini AI reasoning.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -15,6 +15,7 @@ import {
   deleteDocument,
   validateCoverage,
   startWorkflow,
+  getDocumentRequirements,
 } from '../../services/claimService';
 import {
   assessClaim,
@@ -27,7 +28,8 @@ import {
 const DOCUMENT_TYPES = [
   'Police Report', 'Photos of Damage', 'Repair Estimate', 'Driver License',
   'Property Deed', 'Medical Report', 'Hospital Bills', 'Prescription',
-  'Doctor Referral', 'Death Certificate', 'Beneficiary ID', 'Policy Document',
+  'Doctor Referral', 'Death Certificate', 'Beneficiary ID',
+  'Beneficiary / Nominee Identification', 'Claim Form', 'Policy Document',
   'Travel Itinerary', 'Receipts', 'Incident Report', 'Property Valuation',
   'Third Party Claim', 'Legal Notice', 'Supporting Document',
 ];
@@ -46,9 +48,15 @@ function ClaimDetails() {
   const [successMessage, setSuccessMessage] = useState(null);
 
   // Upload state
+  const fileInputRef = useRef(null);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadDocType, setUploadDocType] = useState('Supporting Document');
   const [uploading, setUploading] = useState(false);
+
+  // Requirements checklist state
+  const [docRequirements, setDocRequirements] = useState(null);
+  const [loadingRequirements, setLoadingRequirements] = useState(false);
+  const [requirementsError, setRequirementsError] = useState(null);
 
   // Verification / Coverage / Risk / Payout state
   const [verificationResult, setVerificationResult] = useState(null);
@@ -57,6 +65,21 @@ function ClaimDetails() {
   const [riskResult, setRiskResult] = useState(null);
   const [existingPayout, setExistingPayout] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
+
+  const fetchRequirements = useCallback(async () => {
+    if (!id || typeof getDocumentRequirements !== 'function') return;
+    setLoadingRequirements(true);
+    setRequirementsError(null);
+    try {
+      const data = await getDocumentRequirements(id);
+      setDocRequirements(data);
+    } catch (err) {
+      console.warn('Failed to load document requirements:', err);
+      setRequirementsError('Unable to load document requirements. You can still upload documents.');
+    } finally {
+      setLoadingRequirements(false);
+    }
+  }, [id]);
 
   const fetchClaim = useCallback(async () => {
     setLoading(true);
@@ -97,7 +120,20 @@ function ClaimDetails() {
 
   useEffect(() => {
     fetchClaim();
-  }, [fetchClaim]);
+    fetchRequirements();
+  }, [fetchClaim, fetchRequirements]);
+
+  const handleQuickSelectUpload = (docType) => {
+    setUploadDocType(docType);
+    if (fileInputRef.current) {
+      if (typeof fileInputRef.current.scrollIntoView === 'function') {
+        fileInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (typeof fileInputRef.current.focus === 'function') {
+        fileInputRef.current.focus();
+      }
+    }
+  };
 
   const handleUpload = async (e) => {
     e.preventDefault();
@@ -107,12 +143,12 @@ function ClaimDetails() {
     try {
       await uploadDocument(id, uploadFile, uploadDocType);
       setUploadFile(null);
-      setUploadDocType('Supporting Document');
       if (verificationResult || documentsChangedSinceVerification) {
         setVerificationResult(null);
         setDocumentsChangedSinceVerification(true);
       }
       await fetchClaim();
+      await fetchRequirements();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -150,7 +186,7 @@ function ClaimDetails() {
   };
 
   const handleRunRiskAssessment = async () => {
-    if (!normVerif?.complete || documentsChangedSinceVerification || actionLoading === 'risk') return;
+    if (!normVerif || documentsChangedSinceVerification || actionLoading === 'risk') return;
     setActionLoading('risk');
     setError(null);
     setSuccessMessage(null);
@@ -158,7 +194,10 @@ function ClaimDetails() {
       const result = await assessClaim(id, { includeAiAnalysis: true });
       setRiskResult(result);
       setSuccessMessage('Risk assessment completed successfully.');
-      await fetchClaim();
+      try {
+        const claimData = await getClaim(id);
+        setClaim(claimData);
+      } catch {}
     } catch (err) {
       setError(err.message || 'Risk assessment failed.');
     } finally {
@@ -215,6 +254,7 @@ function ClaimDetails() {
         setDocumentsChangedSinceVerification(true);
       }
       await fetchClaim();
+      await fetchRequirements();
     } catch (err) {
       if (err.status === 403 || err.message?.includes('permission')) {
         setError('You do not have permission to delete this item.');
@@ -251,8 +291,16 @@ function ClaimDetails() {
       Verified: 'status-badge--approved',
       Rejected: 'status-badge--rejected',
       Flagged: 'status-badge--additionaldocumentsrequired',
+      Mismatch: 'status-badge--rejected',
+      Unreadable: 'status-badge--rejected',
+      NeedsReview: 'status-badge--additionaldocumentsrequired',
     };
     return `status-badge ${map[status] || 'status-badge--draft'}`;
+  };
+
+  const formatFlagType = (typeStr) => {
+    if (!typeStr) return '';
+    return typeStr.replace(/([a-z])([A-Z])/g, '$1 $2');
   };
 
   const formatFileSize = (bytes) => {
@@ -309,7 +357,11 @@ function ClaimDetails() {
     fallbackUsed: verificationResult.fallbackUsed ?? verificationResult.fallback_used ?? false,
   } : null;
 
-  const isRiskReady = Boolean(normVerif && normVerif.complete && !documentsChangedSinceVerification);
+  const isRiskReady = Boolean(
+    normVerif &&
+    (normVerif.missingItems?.length === 0) &&
+    !documentsChangedSinceVerification
+  );
   const hasExistingPayout = Boolean(existingPayout);
   const isDocVerifComplete = Boolean(normVerif && normVerif.complete && !documentsChangedSinceVerification);
   const hasRiskAssessment = Boolean(riskResult);
@@ -331,6 +383,17 @@ function ClaimDetails() {
     if (!isPayoutReady) return;
     navigate(`/payouts/calculate?claimId=${claim.id}`);
   };
+
+  const requiredTypesSet = new Set(
+    docRequirements?.requiredDocuments?.map((r) => r.type.toLowerCase()) || []
+  );
+  if (requiredTypesSet.has('beneficiary / nominee identification')) {
+    requiredTypesSet.add('beneficiary id');
+  }
+
+  const optionalDocumentTypes = DOCUMENT_TYPES.filter(
+    (t) => !requiredTypesSet.has(t.toLowerCase())
+  );
 
   return (
     <div className="fade-in">
@@ -560,14 +623,16 @@ function ClaimDetails() {
               {normVerif.complete ? '✅' : '⚠️'} Document Verification Result
             </h3>
             <span className={`status-badge ${normVerif.complete ? 'status-badge--approved' : 'status-badge--riskassessment'}`}>
-              {normVerif.complete ? 'Complete' : 'Action Required'}
+              {normVerif.complete ? 'Complete' : (normVerif.missingItems?.length === 0 ? 'Needs Review' : 'Action Required')}
             </span>
           </div>
 
           <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
             {normVerif.complete
               ? 'All required documents are present and verified.'
-              : 'Verification found issues that need attention.'}
+              : (normVerif.missingItems?.length === 0 && normVerif.inconsistencies?.length > 0
+                  ? 'All required document types are present, but one or more documents require review.'
+                  : 'Verification found issues that need attention.')}
           </p>
 
           {/* Fallback Notice */}
@@ -825,6 +890,127 @@ function ClaimDetails() {
         </div>
       )}
 
+      {/* Required Documents Section */}
+      <div className="card" id="required-documents-card" style={{ marginBottom: '2rem' }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <h3>Required Documents for this {claim.claimType || 'Insurance'} Claim</h3>
+          {docRequirements && (
+            <span
+              id="required-docs-progress-badge"
+              style={{
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                padding: '4px 10px',
+                borderRadius: '12px',
+                backgroundColor: docRequirements.complete ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                color: docRequirements.complete ? '#16a34a' : '#d97706',
+                border: `1px solid ${docRequirements.complete ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
+              }}
+            >
+              {docRequirements.uploadedRequiredCount} of {docRequirements.requiredCount} required documents uploaded
+            </span>
+          )}
+        </div>
+
+        {loadingRequirements ? (
+          <div style={{ padding: '1.25rem', color: 'var(--text-muted)' }}>
+            Loading required documents...
+          </div>
+        ) : requirementsError ? (
+          <div style={{ padding: '1rem', color: '#d97706', fontSize: '0.9rem' }}>
+            ⚠️ {requirementsError}
+          </div>
+        ) : docRequirements?.requiredDocuments?.length > 0 ? (
+          <div style={{ padding: '1rem 1.25rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {docRequirements.requiredDocuments.map((req) => (
+                <div
+                  key={req.type}
+                  className="requirement-item"
+                  id={`req-${req.type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    backgroundColor: req.uploaded ? 'rgba(34, 197, 94, 0.05)' : 'rgba(243, 244, 246, 0.5)',
+                    border: `1px solid ${req.uploaded ? 'rgba(34, 197, 94, 0.2)' : 'var(--border-color, #e5e7eb)'}`,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        fontSize: '0.85rem',
+                        fontWeight: 'bold',
+                        backgroundColor: req.uploaded ? '#16a34a' : 'transparent',
+                        color: req.uploaded ? '#fff' : '#d97706',
+                        border: req.uploaded ? 'none' : '2px solid #d97706',
+                      }}
+                    >
+                      {req.uploaded ? '✓' : '○'}
+                    </span>
+                    <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                      {req.type}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span
+                      style={{
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        backgroundColor: req.uploaded ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                        color: req.uploaded ? '#16a34a' : '#d97706',
+                      }}
+                    >
+                      {req.uploaded ? 'Uploaded' : 'Missing'}
+                    </span>
+                    {!req.uploaded && !isFinalStatus && (
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                        aria-label={`Select ${req.type}`}
+                        onClick={() => handleQuickSelectUpload(req.type)}
+                      >
+                        Upload
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Progress / Readiness Message */}
+            <div
+              id="required-docs-readiness-msg"
+              style={{
+                marginTop: '1rem',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                backgroundColor: docRequirements.complete ? 'rgba(34, 197, 94, 0.1)' : 'rgba(59, 130, 246, 0.08)',
+                border: `1px solid ${docRequirements.complete ? 'rgba(34, 197, 94, 0.25)' : 'rgba(59, 130, 246, 0.2)'}`,
+                color: docRequirements.complete ? '#15803d' : 'var(--text-primary)',
+              }}
+            >
+              {docRequirements.complete
+                ? 'All required documents have been uploaded. You can now verify the documents.'
+                : 'Upload the missing required documents before verification.'}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {/* Documents Section */}
       <div className="card" style={{ marginBottom: '2rem' }}>
         <div className="card-header">
@@ -867,7 +1053,7 @@ function ClaimDetails() {
 
         {/* Upload Form */}
         {!isFinalStatus && (
-          <form onSubmit={handleUpload} style={{
+          <form id="doc-upload-form" onSubmit={handleUpload} style={{
             marginTop: '1.25rem', paddingTop: '1.25rem',
             borderTop: '1px solid var(--border-color)',
             display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap',
@@ -876,6 +1062,7 @@ function ClaimDetails() {
               <label htmlFor="doc-file">File</label>
               <input
                 id="doc-file"
+                ref={fileInputRef}
                 type="file"
                 onChange={(e) => setUploadFile(e.target.files[0])}
                 accept="image/*,.pdf,.doc,.docx,.txt"
@@ -888,7 +1075,26 @@ function ClaimDetails() {
                 value={uploadDocType}
                 onChange={(e) => setUploadDocType(e.target.value)}
               >
-                {DOCUMENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {docRequirements?.requiredDocuments?.length > 0 ? (
+                  <>
+                    <optgroup label="Required">
+                      {docRequirements.requiredDocuments.map((req) => (
+                        <option key={req.type} value={req.type}>
+                          {req.type}{req.uploaded ? ' (Uploaded)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                    {optionalDocumentTypes.length > 0 && (
+                      <optgroup label="Other / Optional">
+                        {optionalDocumentTypes.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                ) : (
+                  DOCUMENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)
+                )}
               </select>
             </div>
             <button

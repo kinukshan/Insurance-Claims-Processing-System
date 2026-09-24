@@ -21,7 +21,9 @@ public class RiskAssessmentRepository : IRiskAssessmentRepository
     /// <inheritdoc />
     public async Task<Claim?> GetClaimByIdAsync(Guid claimId)
     {
-        return await _dbContext.Claims.FirstOrDefaultAsync(c => c.Id == claimId);
+        return await _dbContext.Claims
+            .Include(c => c.Documents)
+            .FirstOrDefaultAsync(c => c.Id == claimId);
     }
 
     /// <inheritdoc />

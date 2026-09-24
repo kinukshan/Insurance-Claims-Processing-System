@@ -116,6 +116,8 @@ class ValidationSafetyAgent:
             coverage_limit=request.coverage_limit,
             deductible=request.deductible,
             proposed_payout=request.proposed_payout,
+            policy_type=request.policy_type,
+            claim_type=request.claim_type,
         )
         if result:
             violations.append(result)
@@ -133,7 +135,23 @@ class ValidationSafetyAgent:
             f"{'PASSED' if is_valid else 'FAILED'} with {len(violations)} violation(s)."
         )
 
-        # Gemini contextual safety analysis
+        # Deterministic violations short-circuit: do NOT call Gemini!
+        if not is_valid:
+            return PayoutValidationResult(
+                valid=False,
+                violations=violations,
+                requires_human_approval=True,
+                agent_id=self.AGENT_ID,
+                timestamp=datetime.utcnow(),
+                summary=summary,
+                ai_used=False,
+                ai_provider=None,
+                ai_model=None,
+                reasoning_summary=None,
+                fallback_used=False,
+            )
+
+        # Gemini contextual safety analysis (runs ONLY when deterministic validation passes)
         ai_used = False
         ai_provider = None
         ai_model = None
@@ -150,10 +168,10 @@ class ValidationSafetyAgent:
                     f"Coverage Limit: ${request.coverage_limit:,.2f}\n"
                     f"Deductible: ${request.deductible:,.2f}\n"
                     f"Proposed Payout: ${request.proposed_payout:,.2f}\n"
-                    f"Deterministic Validation: {'PASSED' if is_valid else 'FAILED'}\n"
-                    f"Violations: {'; '.join(violations) if violations else 'None'}\n\n"
+                    f"Deterministic Validation: PASSED\n"
+                    f"Violations: None\n\n"
                     "Provide a concise 2-sentence financial safety summary explaining why this payout proposal is valid "
-                    "or why specific policy rules were violated. Reiterate that human supervisor approval is required."
+                    "under the policy limits and conditions. Reiterate that human supervisor approval is required."
                 )
                 system_instruction = (
                     "You are an insurance payout validation and financial safety assistant. "

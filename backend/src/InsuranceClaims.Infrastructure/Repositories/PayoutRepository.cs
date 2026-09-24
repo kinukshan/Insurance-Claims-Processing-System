@@ -20,6 +20,8 @@ public class PayoutRepository : IPayoutRepository
     {
         return await _context.Payouts
             .Include(p => p.Approvals)
+            .Include(p => p.Claim)
+            .Include(p => p.PaymentTransactions)
             .FirstOrDefaultAsync(p => p.Id == id);
     }
 
@@ -27,6 +29,8 @@ public class PayoutRepository : IPayoutRepository
     {
         return await _context.Payouts
             .Include(p => p.Approvals)
+            .Include(p => p.Claim)
+            .Include(p => p.PaymentTransactions)
             .FirstOrDefaultAsync(p => p.ClaimId == claimId);
     }
 
@@ -34,6 +38,8 @@ public class PayoutRepository : IPayoutRepository
     {
         return await _context.Payouts
             .Include(p => p.Approvals)
+            .Include(p => p.Claim)
+            .Include(p => p.PaymentTransactions)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
     }
@@ -43,6 +49,48 @@ public class PayoutRepository : IPayoutRepository
     {
         var query = _context.Payouts
             .Include(p => p.Approvals)
+            .Include(p => p.Claim)
+            .Include(p => p.PaymentTransactions)
+            .AsQueryable();
+
+        // Filter
+        if (statusFilter.HasValue)
+        {
+            query = query.Where(p => p.Status == statusFilter.Value);
+        }
+
+        // Sort
+        query = sortBy?.ToLowerInvariant() switch
+        {
+            "amount" or "finalpayout" => sortDescending
+                ? query.OrderByDescending(p => p.FinalPayout)
+                : query.OrderBy(p => p.FinalPayout),
+            "status" => sortDescending
+                ? query.OrderByDescending(p => p.Status)
+                : query.OrderBy(p => p.Status),
+            _ => sortDescending
+                ? query.OrderByDescending(p => p.CreatedAt)
+                : query.OrderBy(p => p.CreatedAt)
+        };
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    public async Task<(List<Payout> Items, int TotalCount)> GetPagedByPolicyholderAsync(
+        Guid policyholderId, int page, int pageSize, PayoutStatus? statusFilter, string? sortBy, bool sortDescending)
+    {
+        var query = _context.Payouts
+            .Include(p => p.Approvals)
+            .Include(p => p.Claim)
+            .Include(p => p.PaymentTransactions)
+            .Where(p => p.Claim != null && p.Claim.PolicyHolderId == policyholderId)
             .AsQueryable();
 
         // Filter
@@ -114,5 +162,13 @@ public class PayoutRepository : IPayoutRepository
     {
         _context.Payouts.Remove(payout);
         await _context.SaveChangesAsync();
+    }
+
+    public async Task<string?> GetPolicyholderEmailAsync(Guid policyholderId)
+    {
+        return await _context.Users
+            .Where(u => u.Id == policyholderId)
+            .Select(u => u.Email)
+            .FirstOrDefaultAsync();
     }
 }

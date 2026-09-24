@@ -1,64 +1,105 @@
 /**
  * ClaimsList component tests — Component B (Member 2).
- * Tests list rendering, loading, error, and empty states.
- *
- * Note: These tests validate component structure and rendering logic.
- * They use a lightweight mock approach compatible with the project's
- * existing Vite + React setup (no Jest/testing-library required).
+ * Tests list rendering, role-based headings, and scoped count display.
  */
 
 import React from 'react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import ClaimsList from '../../pages/claims/ClaimsList';
+import * as claimService from '../../services/claimService';
 
-// Smoke test: module exports and structure
-const testResults = [];
+let mockAuth = { role: null, user: null };
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => mockAuth,
+}));
 
-function assert(condition, message) {
-  testResults.push({ pass: condition, message });
-  if (!condition) console.error(`FAIL: ${message}`);
-  else console.log(`PASS: ${message}`);
-}
+vi.mock('../../services/claimService', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getAllClaims: vi.fn(),
+  };
+});
 
-// ── ClaimsList Component Tests ──
+describe('ClaimsList Component Tests', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth = { role: null, user: null };
+  });
 
-// Test 1: ClaimsList module can be imported
-try {
-  // Dynamic import test (validates the module exists and exports default)
-  assert(typeof import('../../pages/claims/ClaimsList') === 'object',
-    'ClaimsList module can be dynamically imported');
-} catch (e) {
-  assert(false, `ClaimsList import failed: ${e.message}`);
-}
+  // Test 1: claimService exports expected functions
+  it('exports expected claimService functions', () => {
+    expect(typeof claimService.getAllClaims).toBe('function');
+    expect(typeof claimService.getClaim).toBe('function');
+    expect(typeof claimService.createClaim).toBe('function');
+  });
 
-// Test 2: claimService exports expected functions
-import {
-  getAllClaims,
-  getClaim,
-  createClaim,
-  updateClaim,
-  deleteClaim,
-  submitClaim,
-  uploadDocument,
-  getDocuments,
-  validateCoverage,
-  startWorkflow,
-} from '../../services/claimService';
+  // Test 2: Renders "My Claims" heading and scoped count for Policyholder
+  it('renders My Claims heading and scoped count for Policyholder', async () => {
+    mockAuth = { role: 'Policyholder', user: { userId: 'u-1', role: 'Policyholder' } };
+    claimService.getAllClaims.mockResolvedValueOnce([
+      {
+        id: 'claim-1',
+        claimNumber: 'CLM-2026-0001',
+        claimType: 'Auto',
+        claimedAmount: 1500,
+        status: 'Submitted',
+        incidentDate: '2026-09-01T00:00:00Z',
+        submittedAt: '2026-09-02T00:00:00Z',
+        createdAt: '2026-09-01T00:00:00Z',
+      },
+    ]);
 
-assert(typeof getAllClaims === 'function', 'claimService exports getAllClaims');
-assert(typeof getClaim === 'function', 'claimService exports getClaim');
-assert(typeof createClaim === 'function', 'claimService exports createClaim');
-assert(typeof updateClaim === 'function', 'claimService exports updateClaim');
-assert(typeof deleteClaim === 'function', 'claimService exports deleteClaim');
-assert(typeof submitClaim === 'function', 'claimService exports submitClaim');
-assert(typeof uploadDocument === 'function', 'claimService exports uploadDocument');
-assert(typeof getDocuments === 'function', 'claimService exports getDocuments');
-assert(typeof validateCoverage === 'function', 'claimService exports validateCoverage');
-assert(typeof startWorkflow === 'function', 'claimService exports startWorkflow');
+    render(
+      <MemoryRouter>
+        <ClaimsList />
+      </MemoryRouter>
+    );
 
-// Test 3: API module exports
-import { apiFetch, API_BASE_URL } from '../../services/api';
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'My Claims' })).toBeDefined();
+      expect(screen.getByText('1 claim')).toBeDefined();
+      expect(screen.getByText('CLM-2026-0001')).toBeDefined();
+    });
+  });
 
-assert(typeof apiFetch === 'function', 'api exports apiFetch');
-assert(typeof API_BASE_URL === 'string', 'api exports API_BASE_URL');
-assert(API_BASE_URL.length > 0, 'API_BASE_URL is not empty');
+  // Test 3: Renders "Claims Management" heading for staff
+  it('renders Claims Management heading for staff roles', async () => {
+    mockAuth = { role: 'ClaimsAdjuster', user: { userId: 'u-adj', role: 'ClaimsAdjuster' } };
+    claimService.getAllClaims.mockResolvedValueOnce([
+      {
+        id: 'claim-1',
+        claimNumber: 'CLM-2026-0001',
+        claimType: 'Auto',
+        claimedAmount: 1500,
+        status: 'Submitted',
+        incidentDate: '2026-09-01T00:00:00Z',
+        submittedAt: '2026-09-02T00:00:00Z',
+        createdAt: '2026-09-01T00:00:00Z',
+      },
+      {
+        id: 'claim-2',
+        claimNumber: 'CLM-2026-0002',
+        claimType: 'Home',
+        claimedAmount: 3200,
+        status: 'UnderReview',
+        incidentDate: '2026-09-03T00:00:00Z',
+        submittedAt: '2026-09-04T00:00:00Z',
+        createdAt: '2026-09-03T00:00:00Z',
+      },
+    ]);
 
-console.log(`\n--- ${testResults.filter(r => r.pass).length}/${testResults.length} tests passed ---`);
+    render(
+      <MemoryRouter>
+        <ClaimsList />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Claims Management' })).toBeDefined();
+      expect(screen.getByText('2 claims')).toBeDefined();
+    });
+  });
+});

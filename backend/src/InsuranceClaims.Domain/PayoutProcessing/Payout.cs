@@ -44,6 +44,9 @@ public class Payout : BaseEntity
     /// <summary>Approval audit trail.</summary>
     public virtual ICollection<PayoutApproval> Approvals { get; set; } = new List<PayoutApproval>();
 
+    /// <summary>Payment transaction history from external providers.</summary>
+    public virtual ICollection<PaymentTransaction> PaymentTransactions { get; set; } = new List<PaymentTransaction>();
+
     // ── Domain Methods ───────────────────────────────────────────────
 
     /// <summary>
@@ -183,5 +186,7 @@ public class Payout : BaseEntity
             (PayoutStatus.Processing, PayoutStatus.Failed) => true,
             _ => false
         };
+
+
     }
 }

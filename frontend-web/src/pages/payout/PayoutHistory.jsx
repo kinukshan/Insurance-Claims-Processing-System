@@ -1,9 +1,22 @@
 // Payout history — Component D (Kinukshan)
-// Staff-facing paginated, filterable, sortable payout history
+// Paginated, filterable, sortable payout history for staff and policyholders
 
 import React, { useState, useEffect, useCallback } from 'react'
 import PayoutStatusBadge from '../../components/payout/PayoutStatusBadge'
-import { getPayoutHistory } from '../../services/payoutService'
+import { getPayoutHistory, getMyPayouts } from '../../services/payoutService'
+import { useAuth } from '../../context/AuthContext'
+
+function useOptionalAuth() {
+  try {
+    const auth = useAuth()
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    }
+  } catch {
+    return { role: null, user: null }
+  }
+}
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
@@ -18,6 +31,9 @@ const STATUS_OPTIONS = [
 ]
 
 function PayoutHistory() {
+  const { role } = useOptionalAuth()
+  const isPolicyholder = role === 'Policyholder'
+
   const [data, setData] = useState({ items: [], totalCount: 0, page: 1, pageSize: 20, totalPages: 0 })
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('')
@@ -32,7 +48,8 @@ function PayoutHistory() {
     setError(null)
     setErrorType(null)
     try {
-      const result = await getPayoutHistory({
+      const fetchFn = isPolicyholder ? getMyPayouts : getPayoutHistory
+      const result = await fetchFn({
         page,
         pageSize: 20,
         status: statusFilter || undefined,
@@ -45,7 +62,7 @@ function PayoutHistory() {
         setError('Your session has expired. Please log in again.')
         setErrorType('auth')
       } else if (err.status === 403) {
-        setError('You do not have permission to view payout history.')
+        setError(isPolicyholder ? 'You do not have permission to view these payouts.' : 'You do not have permission to view payout history.')
         setErrorType('forbidden')
       } else {
         setError(err.message || 'Failed to load payout history.')
@@ -54,7 +71,7 @@ function PayoutHistory() {
     } finally {
       setLoading(false)
     }
-  }, [page, statusFilter, sortBy, sortDesc])
+  }, [page, statusFilter, sortBy, sortDesc, isPolicyholder])
 
   useEffect(() => { loadHistory() }, [loadHistory])
 
@@ -81,7 +98,12 @@ function PayoutHistory() {
 
   return (
     <div style={containerStyle}>
-      <h2>Payout History</h2>
+      <h2>{isPolicyholder ? 'My Payouts' : 'Payout History'}</h2>
+      {isPolicyholder && (
+        <p style={{ color: '#666', marginTop: '-8px', marginBottom: '16px', fontSize: '0.95rem' }}>
+          Track settlements and payment status for your filed claims.
+        </p>
+      )}
 
       <div style={filterRow}>
         <select id="payout-status-filter" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }} style={selectStyle}>

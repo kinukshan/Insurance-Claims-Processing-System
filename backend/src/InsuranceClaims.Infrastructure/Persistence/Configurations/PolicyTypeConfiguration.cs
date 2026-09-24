@@ -45,6 +45,10 @@ public class PolicyTypeConfiguration : IEntityTypeConfiguration<PolicyType>
             .IsRequired()
             .HasDefaultValue(true);
 
+        builder.Property(pt => pt.InsuranceClass)
+            .IsRequired()
+            .HasDefaultValue(InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass.General);
+
         builder.Property(pt => pt.CreatedAt)
             .IsRequired();
 

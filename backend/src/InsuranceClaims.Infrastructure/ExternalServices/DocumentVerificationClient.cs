@@ -35,6 +35,9 @@ public class DocumentVerificationClient : IDocumentVerificationClient
             {
                 document_type = d.DocumentType,
                 file_name = d.FileName,
+                file_url = d.FileUrl,
+                content_type = d.ContentType,
+                file_size = d.FileSize,
                 uploaded_at = d.UploadedAt.ToString("yyyy-MM-dd"),
                 verification_status = d.VerificationStatus
             }).ToList()

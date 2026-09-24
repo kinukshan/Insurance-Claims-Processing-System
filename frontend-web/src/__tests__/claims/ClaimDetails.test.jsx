@@ -16,6 +16,7 @@ import {
   deleteClaim,
   withdrawClaim,
   deleteDocument,
+  getDocumentRequirements,
 } from '../../services/claimService';
 
 // ── Mock react-router-dom ──
@@ -45,6 +46,7 @@ vi.mock('../../services/claimService', () => ({
   deleteClaim: vi.fn(),
   withdrawClaim: vi.fn(),
   deleteDocument: vi.fn(),
+  getDocumentRequirements: vi.fn(),
 }));
 
 // ── Mock riskService ──
@@ -95,11 +97,26 @@ describe('ClaimDetails Component Tests', () => {
     mockAuthRole = 'ClaimsAdjuster';
     mockAuthUserId = '33333333-3333-3333-3333-333333333333';
     getClaim.mockResolvedValue(sampleClaim);
+    startWorkflow.mockReset();
     assessClaim.mockReset();
     getAssessment.mockReset();
     getAssessment.mockResolvedValue(null);
     getPayoutByClaim.mockReset();
     getPayoutByClaim.mockResolvedValue(null);
+    getDocumentRequirements.mockReset();
+    getDocumentRequirements.mockResolvedValue({
+      claimId: sampleClaim.id,
+      claimType: 'Auto',
+      requiredDocuments: [
+        { type: 'Police Report', required: true, uploaded: true },
+        { type: 'Repair Estimate', required: true, uploaded: false },
+        { type: 'Photos of Damage', required: true, uploaded: false },
+      ],
+      requiredCount: 3,
+      uploadedRequiredCount: 1,
+      missingCount: 2,
+      complete: false,
+    });
   });
 
   // ── Prior Existing Tests Preserved ──
@@ -1250,6 +1267,79 @@ describe('ClaimDetails Component Tests', () => {
     render(<ClaimDetails />);
     await waitFor(() => {
       expect(screen.getByText(/Database server failure/i)).toBeDefined();
+    });
+  });
+
+  it('46. document verification with all required types present but content mismatch shows Needs Review banner', async () => {
+    mockAuthRole = 'ClaimsAdjuster';
+    startWorkflow.mockResolvedValueOnce({
+      complete: false,
+      missingItems: [],
+      inconsistencies: [
+        { field: 'Police Report', description: 'Document type mismatch: content resembles Beneficiary Identification', severity: 'error' },
+      ],
+      warnings: [],
+      fallbackUsed: true,
+    });
+
+    render(<ClaimDetails />);
+    await waitFor(() => expect(screen.getByText('CLM-2026-0001')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /verify documents/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Needs Review')).toBeDefined();
+      expect(screen.getByText('All required document types are present, but one or more documents require review.')).toBeDefined();
+      expect(screen.getByText(/Fallback Rule-Based Verification was used/i)).toBeDefined();
+    });
+
+    // Run risk assessment button should be ENABLED because all required documents are present
+    const riskBtn = document.querySelector('#run-risk-assessment-btn');
+    expect(riskBtn.disabled).toBe(false);
+  });
+
+  it('47. running risk assessment on mismatched documents displays DocumentTypeMismatch flag and Escalate', async () => {
+    mockAuthRole = 'ClaimsAdjuster';
+    startWorkflow.mockResolvedValueOnce({
+      complete: false,
+      missingItems: [],
+      inconsistencies: [
+        { field: 'Police Report', description: 'Document type mismatch', severity: 'error' },
+      ],
+    });
+
+    assessClaim.mockResolvedValueOnce({
+      id: 'risk-mismatch',
+      claimId: sampleClaim.id,
+      riskScore: 40.0,
+      riskLevelDisplay: 'Medium',
+      recommendationDisplay: 'Escalate',
+      assessorType: 0,
+      assessmentTimestamp: '2026-09-24T12:00:00Z',
+      summary: 'Risk Score: 40.0/100 | Level: Medium | Recommendation: Escalate | Flags: 1',
+      fraudFlagCount: 1,
+      flags: [
+        { id: 'f-mismatch', flagTypeDisplay: 'DocumentTypeMismatch', description: 'Police Report content resembles Beneficiary Identification', severityDisplay: 'High' },
+      ],
+      fallbackUsed: true,
+    });
+
+    const { container } = render(<ClaimDetails />);
+    await waitFor(() => expect(screen.getByText('CLM-2026-0001')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /verify documents/i }));
+    await waitFor(() => expect(screen.getByText('Needs Review')).toBeDefined());
+
+    const riskBtn = container.querySelector('#run-risk-assessment-btn');
+    expect(riskBtn.disabled).toBe(false);
+    fireEvent.click(riskBtn);
+
+    await waitFor(() => {
+      expect(container.querySelector('#risk-assessment-result-panel')).not.toBeNull();
+      expect(screen.getByText('40.0/100')).toBeDefined();
+      expect(screen.getAllByText('Medium').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Escalate').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/DocumentTypeMismatch/)).toBeDefined();
     });
   });
 });

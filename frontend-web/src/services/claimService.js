@@ -106,3 +106,10 @@ export async function validateCoverage(claimId) {
 export async function startWorkflow(claimId) {
   return apiFetch(`/claims/${claimId}/start-workflow`, { method: 'POST' });
 }
+
+/**
+ * GET /api/claims/{id}/document-requirements — Get deterministic required documents and completion status.
+ */
+export async function getDocumentRequirements(claimId) {
+  return apiFetch(`/claims/${claimId}/document-requirements`);
+}

@@ -8,10 +8,10 @@ namespace InsuranceClaims.Application.ClaimsManagement.Interfaces;
 /// </summary>
 public interface IClaimService
 {
-    Task<ClaimResponseDto> CreateClaimAsync(Guid policyHolderId, CreateClaimDto dto);
+    Task<ClaimResponseDto> CreateClaimAsync(Guid requestingUserId, CreateClaimDto dto, Role userRole = Role.Policyholder);
     Task<ClaimResponseDto?> GetClaimAsync(Guid claimId, Guid requestingUserId, Role userRole);
     Task<List<ClaimSummaryDto>> GetMyClaimsAsync(Guid policyHolderId);
-    Task<List<ClaimSummaryDto>> GetAllClaimsAsync(string? statusFilter = null, string? searchTerm = null);
+    Task<List<ClaimSummaryDto>> GetAllClaimsAsync(string? statusFilter = null, string? searchTerm = null, Guid? policyHolderId = null);
     Task<ClaimResponseDto?> UpdateClaimAsync(Guid claimId, Guid requestingUserId, UpdateClaimDto dto);
     Task<bool> DeleteClaimAsync(Guid claimId, Guid requestingUserId);
     Task<bool> DeleteClaimAsync(Guid claimId, Guid requestingUserId, Role userRole);
@@ -22,4 +22,5 @@ public interface IClaimService
     Task<List<ClaimDocumentDto>> GetDocumentsAsync(Guid claimId, Guid requestingUserId, Role userRole);
     Task<CoverageValidationResultDto> ValidateCoverageAsync(Guid claimId, Guid requestingUserId, Role userRole);
     Task<DocumentVerificationResultDto> VerifyDocumentsAsync(Guid claimId, Guid requestingUserId, Role userRole);
+    Task<ClaimDocumentRequirementsDto?> GetDocumentRequirementsAsync(Guid claimId, Guid requestingUserId, Role userRole);
 }

@@ -1,3 +1,5 @@
+using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Application.ClaimsManagement.Services;
 using InsuranceClaims.Application.RiskAssessment.DTOs;
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
 using InsuranceClaims.Domain.ClaimsManagement;
@@ -15,6 +17,7 @@ public class RiskAssessmentService : IRiskAssessmentService
 {
     private readonly IRiskAssessmentRepository _repository;
     private readonly IAiRiskClient _aiClient;
+    private readonly IDocumentStorageService? _storageService;
 
     // ── Risk thresholds ──────────────────────────────────────────
     private const decimal LowThreshold = 30m;
@@ -25,10 +28,12 @@ public class RiskAssessmentService : IRiskAssessmentService
 
     public RiskAssessmentService(
         IRiskAssessmentRepository repository,
-        IAiRiskClient aiClient)
+        IAiRiskClient aiClient,
+        IDocumentStorageService? storageService = null)
     {
         _repository = repository;
         _aiClient = aiClient;
+        _storageService = storageService;
     }
 
     /// <inheritdoc />
@@ -88,10 +93,75 @@ public class RiskAssessmentService : IRiskAssessmentService
             ruleScore += 20m;
         }
 
+        // Rule: Document integrity and consistency validation
+        if (claim.Documents != null && claim.Documents.Count > 0)
+        {
+            var fileBytesMap = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+            if (_storageService != null)
+            {
+                foreach (var doc in claim.Documents)
+                {
+                    if (!string.IsNullOrWhiteSpace(doc.FileUrl))
+                    {
+                        try
+                        {
+                            fileBytesMap[doc.FileUrl] = await _storageService.GetFileBytesAsync(doc.FileUrl);
+                        }
+                        catch
+                        {
+                            fileBytesMap[doc.FileUrl] = null;
+                        }
+                    }
+                }
+            }
+
+            var docEval = DocumentIntegrityValidator.EvaluateClaimDocuments(
+                claim.ClaimType.ToString(),
+                claim.Documents,
+                url => fileBytesMap.TryGetValue(url, out var b) ? b : null
+            );
+
+            foreach (var finding in docEval.Findings)
+            {
+                ruleFlags.Add(CreateFlag(
+                    claimId,
+                    finding.FlagType,
+                    finding.Description,
+                    finding.Severity,
+                    FlagSource.Rule
+                ));
+
+                switch (finding.FlagType)
+                {
+                    case FraudFlagType.DocumentTypeMismatch:
+                        ruleScore += 40m;
+                        break;
+                    case FraudFlagType.DuplicateDocumentReused:
+                        ruleScore += 25m;
+                        break;
+                    case FraudFlagType.DocumentUnreadable:
+                        ruleScore += 20m;
+                        break;
+                    case FraudFlagType.DocumentContentInconsistent:
+                        ruleScore += 20m;
+                        break;
+                    case FraudFlagType.DocumentVerificationFailed:
+                        ruleScore += 15m;
+                        break;
+                }
+            }
+        }
+
         // 3. Deterministic rules are authoritative for all risk decisions
         decimal finalScore = Math.Clamp(ruleScore, 0m, 100m);
         var riskLevel = ClassifyRiskLevel(finalScore);
-        var recommendation = finalScore >= AutoEscalateThreshold
+
+        var hasCriticalIssues = finalScore >= MediumThreshold
+            || ruleFlags.Any(f => f.FlagType is FraudFlagType.DocumentTypeMismatch
+                or FraudFlagType.DuplicateDocumentReused
+                or FraudFlagType.DocumentUnreadable);
+
+        var recommendation = (finalScore >= AutoEscalateThreshold || hasCriticalIssues)
             ? RiskRecommendation.Escalate
             : RiskRecommendation.Proceed;
 
@@ -106,7 +176,16 @@ public class RiskAssessmentService : IRiskAssessmentService
                 ClaimAmount = claim.ClaimedAmount,
                 Description = claim.Description,
                 IncidentDate = claim.IncidentDate,
-                IncidentLocation = claim.IncidentLocation
+                IncidentLocation = claim.IncidentLocation,
+                ClaimType = claim.ClaimType.ToString(),
+                DocumentFlags = ruleFlags
+                    .Where(f => f.FlagType is FraudFlagType.DocumentTypeMismatch
+                        or FraudFlagType.DocumentUnreadable
+                        or FraudFlagType.DuplicateDocumentReused
+                        or FraudFlagType.DocumentContentInconsistent
+                        or FraudFlagType.DocumentVerificationFailed)
+                    .Select(f => $"{f.FlagType}: {f.Description}")
+                    .ToList()
             });
         }
 

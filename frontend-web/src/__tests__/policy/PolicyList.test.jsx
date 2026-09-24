@@ -1,8 +1,22 @@
-// Policy component tests — Component A (Member 1)
 import React from 'react'
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import PolicyCard from '../../components/policy/PolicyCard'
+import PolicyList from '../../pages/policy/PolicyList'
+import * as policyService from '../../services/policyService'
+
+let mockAuth = { role: null, user: null }
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => mockAuth,
+}))
+
+vi.mock('../../services/policyService', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    getPolicies: vi.fn(),
+  }
+})
 
 // Note: These tests require @testing-library/react and vitest to be installed.
 // They validate the component structure and behavior patterns.
@@ -214,5 +228,41 @@ describe('PolicyCard Delete functionality', () => {
 
     expect(onDelete).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
+  })
+})
+
+describe('PolicyList Scoping and Role Headers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAuth = { role: null, user: null }
+  })
+
+  it('renders My Policies heading and scoped count for Policyholder', async () => {
+    mockAuth = { role: 'Policyholder', user: { userId: 'u-1', role: 'Policyholder' } }
+    policyService.getPolicies.mockResolvedValueOnce([
+      { id: 'pol-1', policyNumber: 'POL-001', status: 'Active', policyholderId: 'u-1', policyTypeName: 'Auto', premium: 500 }
+    ])
+
+    render(<PolicyList />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'My Policies' })).toBeDefined()
+      expect(screen.getByText('Showing 1 of 1 policies')).toBeDefined()
+    })
+  })
+
+  it('renders Policies heading for Staff roles', async () => {
+    mockAuth = { role: 'ClaimsAdjuster', user: { userId: 'u-adj', role: 'ClaimsAdjuster' } }
+    policyService.getPolicies.mockResolvedValueOnce([
+      { id: 'pol-1', policyNumber: 'POL-001', status: 'Active', policyholderId: 'u-1', policyTypeName: 'Auto', premium: 500 },
+      { id: 'pol-2', policyNumber: 'POL-002', status: 'Active', policyholderId: 'u-2', policyTypeName: 'Home', premium: 800 }
+    ])
+
+    render(<PolicyList />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Policies' })).toBeDefined()
+      expect(screen.getByText('Showing 2 of 2 policies')).toBeDefined()
+    })
   })
 })

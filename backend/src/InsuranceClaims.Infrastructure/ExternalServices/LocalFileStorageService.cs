@@ -45,13 +45,35 @@ public class LocalFileStorageService : IDocumentStorageService
             if (File.Exists(filePath))
             {
                 File.Delete(filePath);
+                return Task.FromResult(true);
             }
 
-            return Task.FromResult(true);
+            return Task.FromResult(false);
         }
         catch (Exception)
         {
             return Task.FromResult(false);
+        }
+    }
+
+    public async Task<byte[]?> GetFileBytesAsync(string fileUrl)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(fileUrl))
+                return null;
+
+            var fileName = Path.GetFileName(fileUrl);
+            var filePath = Path.Combine(_uploadDirectory, fileName);
+
+            if (!File.Exists(filePath))
+                return null;
+
+            return await File.ReadAllBytesAsync(filePath);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 }

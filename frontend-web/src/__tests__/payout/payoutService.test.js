@@ -15,12 +15,16 @@ import {
   getPayoutById,
   getPayoutByClaim,
   getPayoutHistory,
+  getMyPayouts,
   approvePayout,
   rejectPayout,
   requestRevision,
   executePayout,
   updatePayout,
   deletePayout,
+  getPaymentTransactions,
+  syncPaymentStatus,
+  getPaymentProviderInfo,
 } from '../../services/payoutService'
 
 describe('payoutService', () => {
@@ -51,6 +55,18 @@ describe('payoutService', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
     const [endpoint] = apiFetch.mock.calls[0]
     expect(endpoint).toContain('/payouts/history')
+    expect(endpoint).toContain('page=2')
+    expect(endpoint).toContain('pageSize=10')
+    expect(endpoint).toContain('status=1')
+    expect(endpoint).toContain('sortBy=FinalPayout')
+    expect(endpoint).toContain('sortDescending=true')
+  })
+
+  it('sends correct endpoint and method for getMyPayouts', async () => {
+    await getMyPayouts({ page: 2, pageSize: 10, status: '1', sortBy: 'FinalPayout', sortDescending: true })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    const [endpoint] = apiFetch.mock.calls[0]
+    expect(endpoint).toContain('/payouts/my')
     expect(endpoint).toContain('page=2')
     expect(endpoint).toContain('pageSize=10')
     expect(endpoint).toContain('status=1')
@@ -97,6 +113,21 @@ describe('payoutService', () => {
     expect(apiFetch).toHaveBeenCalledWith('/payouts/payout-6', { method: 'DELETE' })
   })
 
+  it('sends correct method for getPaymentTransactions', async () => {
+    await getPaymentTransactions('payout-7')
+    expect(apiFetch).toHaveBeenCalledWith('/payouts/payout-7/payments')
+  })
+
+  it('sends correct method for syncPaymentStatus', async () => {
+    await syncPaymentStatus('payout-8')
+    expect(apiFetch).toHaveBeenCalledWith('/payouts/payout-8/payments/sync', { method: 'POST' })
+  })
+
+  it('sends correct method for getPaymentProviderInfo', async () => {
+    await getPaymentProviderInfo()
+    expect(apiFetch).toHaveBeenCalledWith('/payouts/provider-info')
+  })
+
   // Test 3: Error handling — errors propagate from apiFetch
   it('propagates 401 error from apiFetch', async () => {
     const error = new Error('Unauthorized')
@@ -127,6 +158,15 @@ describe('payoutService', () => {
   it('sends default params for getPayoutHistory', async () => {
     await getPayoutHistory()
     const [endpoint] = apiFetch.mock.calls[0]
+    expect(endpoint).toContain('page=1')
+    expect(endpoint).toContain('pageSize=20')
+  })
+
+  // Test: Default params for getMyPayouts
+  it('sends default params for getMyPayouts', async () => {
+    await getMyPayouts()
+    const [endpoint] = apiFetch.mock.calls[0]
+    expect(endpoint).toContain('/payouts/my')
     expect(endpoint).toContain('page=1')
     expect(endpoint).toContain('pageSize=20')
   })
