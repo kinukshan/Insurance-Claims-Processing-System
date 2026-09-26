@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,23 +26,26 @@ public class PolicyTypesController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var policyTypes = await _dbContext.PolicyTypes
+        var rawTypes = await _dbContext.PolicyTypes
             .Where(pt => pt.IsActive)
             .OrderBy(pt => pt.Name)
-            .Select(pt => new
-            {
-                pt.Id,
-                pt.Name,
-                pt.Description,
-                pt.DefaultCoverageLimit,
-                pt.DefaultDeductible,
-                InsuranceClass = (int)pt.InsuranceClass,
-                InsuranceClassCode = pt.InsuranceClass.ToString(),
-                InsuranceClassName = pt.InsuranceClass == InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass.LongTerm
-                    ? "Long-Term Insurance"
-                    : "General Insurance"
-            })
             .ToListAsync();
+
+        var policyTypes = rawTypes.Select(pt => new
+        {
+            pt.Id,
+            pt.Name,
+            pt.Description,
+            pt.DefaultCoverageLimit,
+            DefaultDeductible = PolicyClaimCompatibility.GetFixedDeductible(pt.Id)
+                ?? PolicyClaimCompatibility.GetFixedDeductible(pt.Name)
+                ?? pt.DefaultDeductible,
+            InsuranceClass = (int)pt.InsuranceClass,
+            InsuranceClassCode = pt.InsuranceClass.ToString(),
+            InsuranceClassName = pt.InsuranceClass == InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass.LongTerm
+                ? "Long-Term Insurance"
+                : "General Insurance"
+        });
 
         return Ok(policyTypes);
     }

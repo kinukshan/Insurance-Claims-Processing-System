@@ -1,6 +1,7 @@
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Services;
+using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.Users;
 using Xunit;
@@ -649,6 +650,20 @@ internal class FakeClaimRepository : IClaimRepository
 
     public Task<string> GenerateClaimNumberAsync() =>
         Task.FromResult($"CLM-TEST-{_claims.Count + 1:D4}");
+
+    private readonly List<AgentWorkflow> _workflows = new();
+
+    public Task<AgentWorkflow?> GetWorkflowAttemptByIdempotencyKeyAsync(Guid claimId, string idempotencyKey)
+    {
+        var planKey = $"idempotency:{idempotencyKey}";
+        return Task.FromResult(_workflows.FirstOrDefault(w => w.ClaimId == claimId && w.Plan == planKey));
+    }
+
+    public Task<AgentWorkflow> RecordWorkflowAttemptAsync(AgentWorkflow workflow)
+    {
+        _workflows.Add(workflow);
+        return Task.FromResult(workflow);
+    }
 }
 
 internal class FakeDocumentStorageService : IDocumentStorageService

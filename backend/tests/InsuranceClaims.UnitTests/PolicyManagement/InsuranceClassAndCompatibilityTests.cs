@@ -190,7 +190,7 @@ public class InsuranceClassAndCompatibilityTests
             Deductible = 3000m
         };
 
-        var updated = await service.UpdateAsync(policy.Id, updateDto, ownerId, Role.Policyholder);
+        var updated = await service.UpdateAsync(policy.Id, updateDto, ownerId, Role.Underwriter);
 
         Assert.NotNull(updated);
         Assert.Equal(0m, updated.Deductible);
@@ -236,14 +236,14 @@ public class InsuranceClassAndCompatibilityTests
             Deductible = 8000m // Crafted attempt
         };
 
-        var result = await service.UpdateAsync(policy.Id, updateDto, ownerId, Role.Policyholder);
+        var result = await service.UpdateAsync(policy.Id, updateDto, ownerId, Role.Underwriter);
 
         Assert.NotNull(result);
         Assert.Equal(0m, result.Deductible);
     }
 
     [Fact]
-    public async Task PolicyService_CreateAsync_NonLifePolicy_PreservesRequestedDeductible()
+    public async Task PolicyService_CreateAsync_NonLifePolicy_EnforcesFixedDeductible_IgnoringClientInput()
     {
         using var context = CreateInMemoryContext();
         var motorType = new PolicyType
@@ -252,7 +252,7 @@ public class InsuranceClassAndCompatibilityTests
             Name = PolicyClaimCompatibility.MotorInsurance,
             InsuranceClass = InsuranceClass.General,
             DefaultCoverageLimit = 500000m,
-            DefaultDeductible = 1000m
+            DefaultDeductible = PolicyClaimCompatibility.MotorDeductible
         };
         context.PolicyTypes.Add(motorType);
         await context.SaveChangesAsync();
@@ -273,7 +273,7 @@ public class InsuranceClassAndCompatibilityTests
         var result = await service.CreateAsync(dto);
 
         Assert.NotNull(result);
-        Assert.Equal(2500m, result.Deductible);
+        Assert.Equal(PolicyClaimCompatibility.MotorDeductible, result.Deductible);
         Assert.Equal(0, result.InsuranceClass);
         Assert.Equal("General", result.InsuranceClassCode);
     }

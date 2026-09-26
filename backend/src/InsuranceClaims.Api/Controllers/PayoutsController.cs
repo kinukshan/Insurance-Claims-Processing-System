@@ -1,5 +1,7 @@
+using InsuranceClaims.Application.Notifications.Interfaces;
 using InsuranceClaims.Application.PayoutProcessing.DTOs;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
+using InsuranceClaims.Domain.Notifications;
 using InsuranceClaims.Domain.PayoutProcessing;
 using InsuranceClaims.Domain.PolicyManagement.Exceptions;
 using InsuranceClaims.Domain.Users;
@@ -31,6 +33,8 @@ public class PayoutsController : ControllerBase
     private readonly IPaymentGateway _paymentGateway;
     private readonly IPayoutRepository _payoutRepository;
     private readonly IPaymentTransactionRepository _transactionRepository;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
+    private readonly IUserEmailResolver? _userEmailResolver;
     private readonly ILogger<PayoutsController> _logger;
 
     public PayoutsController(
@@ -38,14 +42,19 @@ public class PayoutsController : ControllerBase
         IPaymentGateway paymentGateway,
         IPayoutRepository payoutRepository,
         IPaymentTransactionRepository transactionRepository,
-        ILogger<PayoutsController>? logger = null)
+        ILogger<PayoutsController>? logger = null,
+        INotificationOrchestrator? notificationOrchestrator = null,
+        IUserEmailResolver? userEmailResolver = null)
     {
         _payoutService = payoutService;
         _paymentGateway = paymentGateway;
         _payoutRepository = payoutRepository;
         _transactionRepository = transactionRepository;
         _logger = logger ?? NullLogger<PayoutsController>.Instance;
+        _notificationOrchestrator = notificationOrchestrator;
+        _userEmailResolver = userEmailResolver;
     }
+
 
     /// <summary>
     /// Calculate and create a payout proposal for the given claim.
@@ -59,6 +68,36 @@ public class PayoutsController : ControllerBase
         try
         {
             var result = await _payoutService.CalculatePayoutAsync(claimId);
+
+            // Await non-authoritative notification if pending approval
+            if (_notificationOrchestrator != null && _userEmailResolver != null && result.Status == PayoutStatus.PendingApproval)
+            {
+                try
+                {
+                    var payout = await _payoutRepository.GetByIdAsync(result.Id);
+                    if (payout?.Claim != null && payout.Claim.PolicyHolderId != Guid.Empty)
+                    {
+                        var email = await _userEmailResolver.GetEmailAsync(payout.Claim.PolicyHolderId);
+                        if (!string.IsNullOrWhiteSpace(email))
+                        {
+                            var key = $"payout:{result.Id}:pending-approval";
+                            await _notificationOrchestrator.NotifyAsync(
+                                key,
+                                payout.Claim.PolicyHolderId,
+                                email,
+                                result.ClaimId,
+                                NotificationType.PayoutPendingApproval,
+                                result.ClaimNumber,
+                                result.Id);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Non-authoritative notification failed for payout calculation {PayoutId}", result.Id);
+                }
+            }
+
             return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
         }
         catch (PolicyClaimCompatibilityException ex)
@@ -246,6 +285,36 @@ public class PayoutsController : ControllerBase
             var (reviewerId, reviewerName) = GetReviewerIdentity();
             var result = await _payoutService.ApprovePayoutAsync(
                 id, request.Comments, reviewerId, reviewerName);
+
+            // Await non-authoritative notification for PayoutApproved (worded as Approved, not Paid)
+            if (_notificationOrchestrator != null && _userEmailResolver != null)
+            {
+                try
+                {
+                    var payout = await _payoutRepository.GetByIdAsync(id);
+                    if (payout?.Claim != null && payout.Claim.PolicyHolderId != Guid.Empty)
+                    {
+                        var email = await _userEmailResolver.GetEmailAsync(payout.Claim.PolicyHolderId);
+                        if (!string.IsNullOrWhiteSpace(email))
+                        {
+                            var key = $"payout:{result.Id}:approved";
+                            await _notificationOrchestrator.NotifyAsync(
+                                key,
+                                payout.Claim.PolicyHolderId,
+                                email,
+                                result.ClaimId,
+                                NotificationType.PayoutApproved,
+                                result.ClaimNumber,
+                                result.Id);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Non-authoritative notification failed for payout approval {PayoutId}", id);
+                }
+            }
+
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -295,6 +364,36 @@ public class PayoutsController : ControllerBase
             var (reviewerId, reviewerName) = GetReviewerIdentity();
             var result = await _payoutService.RejectPayoutAsync(
                 id, request.Comments, reviewerId, reviewerName);
+
+            // Await non-authoritative notification for PayoutRejected
+            if (_notificationOrchestrator != null && _userEmailResolver != null)
+            {
+                try
+                {
+                    var payout = await _payoutRepository.GetByIdAsync(id);
+                    if (payout?.Claim != null && payout.Claim.PolicyHolderId != Guid.Empty)
+                    {
+                        var email = await _userEmailResolver.GetEmailAsync(payout.Claim.PolicyHolderId);
+                        if (!string.IsNullOrWhiteSpace(email))
+                        {
+                            var key = $"payout:{result.Id}:rejected";
+                            await _notificationOrchestrator.NotifyAsync(
+                                key,
+                                payout.Claim.PolicyHolderId,
+                                email,
+                                result.ClaimId,
+                                NotificationType.PayoutRejected,
+                                result.ClaimNumber,
+                                result.Id);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Non-authoritative notification failed for payout rejection {PayoutId}", id);
+                }
+            }
+
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -742,6 +841,46 @@ public class PayoutsController : ControllerBase
                 }
 
                 await _payoutRepository.UpdateAsync(payout);
+
+                // Await notification safely in active request scope — non-authoritative
+                if (_notificationOrchestrator != null && _userEmailResolver != null && payout.Claim != null && payout.Claim.PolicyHolderId != Guid.Empty)
+                {
+                    try
+                    {
+                        var email = await _userEmailResolver.GetEmailAsync(payout.Claim.PolicyHolderId);
+                        if (!string.IsNullOrWhiteSpace(email))
+                        {
+                            if (payout.Status == PayoutStatus.Paid)
+                            {
+                                var key = $"payout:{payoutId}:completed";
+                                await _notificationOrchestrator.NotifyAsync(
+                                    key,
+                                    payout.Claim.PolicyHolderId,
+                                    email,
+                                    payout.ClaimId,
+                                    NotificationType.PayoutCompleted,
+                                    payout.Claim.ClaimNumber,
+                                    payoutId);
+                            }
+                            else if (payout.Status == PayoutStatus.Failed)
+                            {
+                                var key = $"payout:{payoutId}:failed:{transaction.Id}";
+                                await _notificationOrchestrator.NotifyAsync(
+                                    key,
+                                    payout.Claim.PolicyHolderId,
+                                    email,
+                                    payout.ClaimId,
+                                    NotificationType.PayoutFailed,
+                                    payout.Claim.ClaimNumber,
+                                    payoutId);
+                            }
+                        }
+                    }
+                    catch (Exception notifEx)
+                    {
+                        _logger.LogWarning(notifEx, "Non-authoritative notification failed for payout execution {PayoutId}", payoutId);
+                    }
+                }
             }
 
             _logger.LogInformation(

@@ -7,6 +7,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import RiskDashboard from '../../pages/risk/RiskDashboard'
 import FlaggedClaims from '../../pages/risk/FlaggedClaims'
+import RiskAssessmentDetail from '../../pages/risk/RiskAssessmentDetail'
 import RiskScoreBadge from '../../components/risk/RiskScoreBadge'
 import FraudFlagList from '../../components/risk/FraudFlagList'
 
@@ -24,7 +25,13 @@ vi.mock('../../services/riskService', () => ({
   getPolicyholderStatus: vi.fn(),
 }))
 
-import { getAllAssessments, getFlaggedClaims, escalateClaim } from '../../services/riskService'
+import {
+  getAllAssessments,
+  getFlaggedClaims,
+  escalateClaim,
+  getAssessment,
+  getFlags,
+} from '../../services/riskService'
 
 // ── Sample test data ─────────────────────────────────────────
 
@@ -202,6 +209,60 @@ describe('RiskDashboard', () => {
       expect(screen.getByText('Total Assessments')).toBeInTheDocument()
     })
   })
+
+  it('loads and displays high-risk Escalate assessment with flags and metrics without crashing', async () => {
+    const highRiskEscalate = [
+      {
+        id: '9b2cbfb7-64fa-4d97-a766-4c4a12e57398',
+        claimId: 'ef39e0fd-6213-450e-b8a4-509e4000fd78',
+        claimNumber: 'CLM-20260925-0004',
+        riskScore: 80.0,
+        riskLevelDisplay: 'Critical',
+        recommendationDisplay: 'Escalate',
+        assessorType: 1,
+        assessmentTimestamp: '2026-09-25T11:09:52Z',
+        summary: 'Risk Score: 80.0/100 | Level: Critical | Recommendation: Escalate | Flags: 3',
+        fraudFlagCount: 3,
+        hasFraudCase: false,
+        createdAt: '2026-09-25T11:09:52Z',
+        updatedAt: '2026-09-25T11:09:52Z',
+      },
+    ]
+    getAllAssessments.mockResolvedValue(highRiskEscalate)
+    render(<RiskDashboard />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Risk Assessment Dashboard')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('CLM-20260925-0004')).toBeInTheDocument()
+    expect(screen.getAllByText('Critical').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Escalate')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('AI')).toBeInTheDocument()
+  })
+
+  it('displays safe error and Retry button when API returns validation error dictionary without JS crash', async () => {
+    const error = new Error('The Priority field is required.; The request field is required.')
+    error.status = 400
+    error.body = {
+      title: 'One or more validation errors occurred.',
+      status: 400,
+      errors: {
+        Priority: ['The Priority field is required.'],
+        request: ['The request field is required.'],
+      },
+    }
+    getAllAssessments.mockRejectedValue(error)
+    render(<RiskDashboard />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/The Priority field is required/)).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Retry')).toBeInTheDocument()
+    expect(document.querySelector('.state-message.error')).toBeInTheDocument()
+  })
 })
 
 // ══════════════════════════════════════════════════════════════
@@ -278,6 +339,83 @@ describe('FlaggedClaims', () => {
     await waitFor(() => {
       expect(screen.getByText('API down')).toBeInTheDocument()
     })
+  })
+
+  it('renders high-risk Escalate assessment in flagged claims table', async () => {
+    const highRiskClaim = [
+      {
+        id: '9b2cbfb7-64fa-4d97-a766-4c4a12e57398',
+        claimId: 'ef39e0fd-6213-450e-b8a4-509e4000fd78',
+        riskScore: 80.0,
+        riskLevelDisplay: 'Critical',
+        recommendationDisplay: 'Escalate',
+        fraudFlagCount: 3,
+        hasFraudCase: false,
+        assessmentTimestamp: '2026-09-25T11:09:52Z',
+      },
+    ]
+    getFlaggedClaims.mockResolvedValue(highRiskClaim)
+    render(<FlaggedClaims />)
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Critical').length).toBeGreaterThanOrEqual(1)
+    })
+
+    expect(screen.getAllByText('Escalate').length).toBe(2)
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Escalate' })).toBeInTheDocument()
+  })
+})
+
+// ══════════════════════════════════════════════════════════════
+// RiskAssessmentDetail Tests
+// ══════════════════════════════════════════════════════════════
+
+describe('RiskAssessmentDetail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders high-risk Escalate assessment with flags, score, and level', async () => {
+    const highRiskDetail = {
+      id: '9b2cbfb7-64fa-4d97-a766-4c4a12e57398',
+      claimId: 'ef39e0fd-6213-450e-b8a4-509e4000fd78',
+      riskScore: 80.0,
+      riskLevelDisplay: 'Critical',
+      recommendationDisplay: 'Escalate',
+      assessorType: 1,
+      assessmentTimestamp: '2026-09-25T11:09:52Z',
+      summary: 'Risk Score: 80.0/100 | Level: Critical | Recommendation: Escalate | Flags: 3',
+      hasFraudCase: false,
+    }
+
+    getAssessment.mockResolvedValue(highRiskDetail)
+    getFlags.mockResolvedValue(sampleFlags)
+
+    render(<RiskAssessmentDetail claimId="ef39e0fd-6213-450e-b8a4-509e4000fd78" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Risk Assessment Detail')).toBeInTheDocument()
+    })
+
+    expect(screen.getAllByText('Critical').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Escalate')).toBeInTheDocument()
+    expect(screen.getByText('AI Agent')).toBeInTheDocument()
+    expect(screen.getByText('Fraud Flags (2)')).toBeInTheDocument()
+    expect(screen.getByText('Escalate to Fraud Case')).toBeInTheDocument()
+  })
+
+  it('renders safe error state and Retry button on API failure', async () => {
+    getAssessment.mockRejectedValue(new Error('Assessment retrieval failed.'))
+    getFlags.mockResolvedValue([])
+
+    render(<RiskAssessmentDetail claimId="ef39e0fd-6213-450e-b8a4-509e4000fd78" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Assessment retrieval failed.')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Retry')).toBeInTheDocument()
   })
 })
 

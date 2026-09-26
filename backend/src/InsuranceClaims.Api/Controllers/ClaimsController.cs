@@ -1,6 +1,9 @@
 using System.Security.Claims;
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Application.Notifications.Interfaces;
+using InsuranceClaims.Application.Notifications.Services;
+using InsuranceClaims.Domain.Notifications;
 using InsuranceClaims.Domain.PolicyManagement.Exceptions;
 using InsuranceClaims.Domain.Users;
 using Microsoft.AspNetCore.Authorization;
@@ -17,11 +20,22 @@ namespace InsuranceClaims.Api.Controllers;
 public class ClaimsController : ControllerBase
 {
     private readonly IClaimService _claimService;
+    private readonly INotificationOrchestrator _notificationOrchestrator;
+    private readonly IUserEmailResolver _userEmailResolver;
+    private readonly ILogger<ClaimsController> _logger;
 
-    public ClaimsController(IClaimService claimService)
+    public ClaimsController(
+        IClaimService claimService,
+        INotificationOrchestrator notificationOrchestrator,
+        IUserEmailResolver userEmailResolver,
+        ILogger<ClaimsController>? logger = null)
     {
         _claimService = claimService;
+        _notificationOrchestrator = notificationOrchestrator;
+        _userEmailResolver = userEmailResolver;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaimsController>.Instance;
     }
+
 
     /// <summary>
     /// Extracts the current user's ID from JWT claims.
@@ -243,6 +257,27 @@ public class ClaimsController : ControllerBase
             var role = GetCurrentUserRole();
             var result = await _claimService.WithdrawClaimAsync(id, userId, role);
             if (result == null) return NotFound(new { message = $"Claim with ID '{id}' not found." });
+
+            // Await notification safely in active request scope — non-authoritative
+            try
+            {
+                var email = await _userEmailResolver.GetEmailAsync(result.PolicyHolderId);
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    await _notificationOrchestrator.NotifyAsync(
+                        $"claim:{result.Id}:withdrawn",
+                        result.PolicyHolderId,
+                        email,
+                        result.Id,
+                        NotificationType.ClaimWithdrawn,
+                        result.ClaimNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Non-authoritative notification failed for claim withdrawal {ClaimId}", result.Id);
+            }
+
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -274,6 +309,28 @@ public class ClaimsController : ControllerBase
             var userId = GetCurrentUserId();
             var result = await _claimService.SubmitClaimAsync(id, userId);
             if (result == null) return NotFound();
+
+            // Await notification safely in active request scope — non-authoritative
+            // Notification failure NEVER fails or rolls back the successful submission
+            try
+            {
+                var email = await _userEmailResolver.GetEmailAsync(result.PolicyHolderId);
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    await _notificationOrchestrator.NotifyAsync(
+                        $"claim:{result.Id}:submitted",
+                        result.PolicyHolderId,
+                        email,
+                        result.Id,
+                        NotificationType.ClaimSubmitted,
+                        result.ClaimNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Non-authoritative notification failed for claim submission {ClaimId}", result.Id);
+            }
+
             return Ok(result);
         }
         catch (UnauthorizedAccessException)
@@ -410,7 +467,63 @@ public class ClaimsController : ControllerBase
         {
             var userId = GetCurrentUserId();
             var role = GetCurrentUserRole();
-            var result = await _claimService.VerifyDocumentsAsync(id, userId, role);
+            var idempotencyKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
+            var result = await _claimService.VerifyDocumentsAsync(id, userId, role, idempotencyKey);
+
+            // Await document notification safely in active request scope — non-authoritative
+            try
+            {
+                var claim = await _claimService.GetClaimAsync(id, userId, role);
+                if (claim != null)
+                {
+                    var email = await _userEmailResolver.GetEmailAsync(claim.PolicyHolderId);
+                    if (!string.IsNullOrWhiteSpace(email))
+                    {
+                        var attemptId = result.AttemptId?.ToString();
+                        if (!result.Complete && result.MissingItems != null && result.MissingItems.Count > 0)
+                        {
+                            var docKey = DocumentNotificationKeys.ForAdditionalDocsRequired(
+                                id, result.MissingItems, claim.Documents, occurrenceId: attemptId);
+                            await _notificationOrchestrator.NotifyAsync(
+                                docKey,
+                                claim.PolicyHolderId,
+                                email,
+                                id,
+                                NotificationType.AdditionalDocumentsRequired,
+                                claim.ClaimNumber);
+                        }
+                        else if (!result.Complete && result.Inconsistencies != null && result.Inconsistencies.Count > 0)
+                        {
+                            var docKey = DocumentNotificationKeys.ForDocumentsNeedReview(
+                                id, result.Inconsistencies, claim.Documents, occurrenceId: attemptId);
+                            await _notificationOrchestrator.NotifyAsync(
+                                docKey,
+                                claim.PolicyHolderId,
+                                email,
+                                id,
+                                NotificationType.DocumentsNeedReview,
+                                claim.ClaimNumber);
+                        }
+                        else if (result.Complete)
+                        {
+                            var docKey = DocumentNotificationKeys.ForDocumentsVerified(
+                                id, claim.Documents, occurrenceId: attemptId);
+                            await _notificationOrchestrator.NotifyAsync(
+                                docKey,
+                                claim.PolicyHolderId,
+                                email,
+                                id,
+                                NotificationType.DocumentsVerified,
+                                claim.ClaimNumber);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Non-authoritative document notification failed for claim {ClaimId}", id);
+            }
+
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -423,4 +536,3 @@ public class ClaimsController : ControllerBase
         }
     }
 }
-

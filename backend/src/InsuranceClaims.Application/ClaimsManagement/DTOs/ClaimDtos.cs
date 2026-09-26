@@ -108,7 +108,8 @@ public record DocumentVerificationResultDto(
     string? AiProvider = null,
     string? AiModel = null,
     string? ReasoningSummary = null,
-    bool FallbackUsed = false
+    bool FallbackUsed = false,
+    Guid? AttemptId = null
 );
 
 /// <summary>

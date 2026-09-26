@@ -266,4 +266,305 @@ public class PolicyRoleAuthorizationTests : IDisposable
         Assert.Equal(_policyholderAId, createdDto.PolicyholderId);
         Assert.NotEqual(_policyholderBId, createdDto.PolicyholderId);
     }
+
+    // 12. Policyholder cannot update their own policy
+    [Fact]
+    public async Task Update_Policyholder_CannotUpdateOwnPolicy_ReturnsForbid()
+    {
+        SetUserContext(_policyholderAId, "Policyholder");
+
+        var dto = new UpdatePolicyDto { CoverageLimit = 75000m };
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    // 13. ClaimsAdjuster cannot update any policy
+    [Fact]
+    public async Task Update_ClaimsAdjuster_CannotUpdateAnyPolicy_ReturnsForbid()
+    {
+        SetUserContext(_staffUserId, "ClaimsAdjuster");
+
+        var dto = new UpdatePolicyDto { CoverageLimit = 75000m };
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    // 14. Underwriter can update permitted fields (CoverageLimit, ExpiryDate, Exclusions)
+    [Fact]
+    public async Task Update_Underwriter_CanUpdatePermittedFields()
+    {
+        SetUserContext(_staffUserId, "Underwriter");
+
+        var newExpiry = DateTime.UtcNow.AddMonths(18);
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = 65000m,
+            ExpiryDate = newExpiry,
+            Exclusions = "Water damage excluded"
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var updated = Assert.IsType<PolicyDto>(okResult.Value);
+        Assert.Equal(65000m, updated.CoverageLimit);
+        Assert.Equal("Water damage excluded", updated.Exclusions);
+
+        var persisted = await _context.Policies.FindAsync(_policyA.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(65000m, persisted.CoverageLimit);
+        Assert.Equal("Water damage excluded", persisted.Exclusions);
+    }
+
+    // 15. Underwriter cannot change status through a tampered request
+    [Fact]
+    public async Task Update_Underwriter_CannotChangeStatus_ReturnsForbid_AndDoesNotMutateStatus()
+    {
+        SetUserContext(_staffUserId, "Underwriter");
+
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = 70000m,
+            Status = "Cancelled"
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        Assert.IsType<ForbidResult>(result.Result);
+
+        // Verify status in DB remains Active and coverage limit was not partially updated
+        var persisted = await _context.Policies.FindAsync(_policyA.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(PolicyStatus.Active, persisted.Status);
+        Assert.Equal(50000m, persisted.CoverageLimit);
+    }
+
+    // 16. Underwriter cannot change deductible through a tampered request (deductible preserved)
+    [Fact]
+    public async Task Update_Underwriter_CannotChangeDeductible_DeductiblePreserved()
+    {
+        SetUserContext(_staffUserId, "Underwriter");
+
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = 60000m,
+            Deductible = 99999m // Tampered deductible
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var updated = Assert.IsType<PolicyDto>(okResult.Value);
+        Assert.Equal(500m, updated.Deductible); // Preserved original
+
+        var persisted = await _context.Policies.FindAsync(_policyA.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(500m, persisted.Deductible);
+    }
+
+    // 17. Admin can update permitted fields and perform valid status transitions
+    [Fact]
+    public async Task Update_Admin_CanUpdatePermittedFieldsAndValidStatusTransitions()
+    {
+        SetUserContext(_staffUserId, "Admin");
+
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = 80000m,
+            Status = "Cancelled",
+            Exclusions = "Administrative cancellation"
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var updated = Assert.IsType<PolicyDto>(okResult.Value);
+        Assert.Equal("Cancelled", updated.Status);
+        Assert.Equal(80000m, updated.CoverageLimit);
+
+        var persisted = await _context.Policies.FindAsync(_policyA.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(PolicyStatus.Cancelled, persisted.Status);
+    }
+
+    // 18. Admin invalid status transition returns BadRequest
+    [Fact]
+    public async Task Update_Admin_InvalidStatusTransition_ReturnsBadRequest()
+    {
+        // First cancel policy B
+        _policyB.Status = PolicyStatus.Cancelled;
+        await _context.SaveChangesAsync();
+
+        SetUserContext(_staffUserId, "Admin");
+
+        // Attempt invalid reactivation of Cancelled policy
+        var dto = new UpdatePolicyDto
+        {
+            Status = "Active"
+        };
+
+        var result = await _controller.Update(_policyB.Id, dto);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    // 19. Unauthorized requests cause no partial database changes
+    [Fact]
+    public async Task Update_UnauthorizedRequest_CausesNoPartialDatabaseChanges()
+    {
+        SetUserContext(_staffUserId, "Underwriter");
+
+        // Underwriter sends a valid coverage limit change together with an unauthorized status change
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = 88888m,
+            Status = "Cancelled"
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        Assert.IsType<ForbidResult>(result.Result);
+
+        // Verify DB: CoverageLimit must NOT have changed to 88888m
+        var persisted = await _context.Policies.FindAsync(_policyA.Id);
+        Assert.NotNull(persisted);
+        Assert.NotEqual(88888m, persisted.CoverageLimit);
+        Assert.Equal(50000m, persisted.CoverageLimit);
+        Assert.Equal(PolicyStatus.Active, persisted.Status);
+    }
+
+    // 20. Existing policy deductibles are preserved
+    [Fact]
+    public async Task Update_ExistingPolicyDeductible_IsPreserved()
+    {
+        SetUserContext(_staffUserId, "Admin");
+
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = 95000m,
+            Deductible = 40000m // Attempted overwrite
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var updated = Assert.IsType<PolicyDto>(okResult.Value);
+        Assert.Equal(500m, updated.Deductible);
+
+        var persisted = await _context.Policies.FindAsync(_policyA.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(500m, persisted.Deductible);
+    }
+
+    // 21. Invalid coverage limit (<= 0) is rejected
+    [Fact]
+    public async Task Update_InvalidCoverageLimit_ReturnsBadRequest()
+    {
+        SetUserContext(_staffUserId, "Underwriter");
+
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = -100m
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    // 22. Invalid expiry date (<= start date) is rejected
+    [Fact]
+    public async Task Update_InvalidExpiryDate_ReturnsBadRequest()
+    {
+        SetUserContext(_staffUserId, "Underwriter");
+
+        var dto = new UpdatePolicyDto
+        {
+            ExpiryDate = _policyA.StartDate.AddDays(-1)
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    // 23. Editing a cancelled policy cannot silently reactivate it
+    [Fact]
+    public async Task Update_CancelledPolicy_CannotSilentlyReactivateIt()
+    {
+        _policyB.Status = PolicyStatus.Cancelled;
+        await _context.SaveChangesAsync();
+
+        SetUserContext(_staffUserId, "Underwriter");
+
+        // Underwriter edits expiry date and exclusions on cancelled policy
+        var dto = new UpdatePolicyDto
+        {
+            ExpiryDate = DateTime.UtcNow.AddYears(2),
+            Exclusions = "Updated note"
+        };
+
+        var result = await _controller.Update(_policyB.Id, dto);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var updated = Assert.IsType<PolicyDto>(okResult.Value);
+        Assert.Equal("Cancelled", updated.Status);
+
+        var persisted = await _context.Policies.FindAsync(_policyB.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(PolicyStatus.Cancelled, persisted.Status);
+    }
+
+    // 24. Historical payouts are preserved when policy is edited
+    [Fact]
+    public async Task Update_HistoricalPayouts_PreservedWhenPolicyUpdated()
+    {
+        // Setup claim and payout for Policy A
+        var claim = new InsuranceClaims.Domain.ClaimsManagement.Claim
+        {
+            Id = Guid.NewGuid(),
+            PolicyId = _policyA.Id,
+            PolicyHolderId = _policyholderAId,
+            ClaimNumber = "CLM-HIST-001",
+            ClaimType = InsuranceClaims.Domain.ClaimsManagement.ClaimType.Auto,
+            ClaimedAmount = 20000m,
+            IncidentDate = DateTime.UtcNow.AddDays(-5),
+            Status = InsuranceClaims.Domain.ClaimsManagement.ClaimStatus.Approved
+        };
+        _context.Claims.Add(claim);
+
+        var payout = new InsuranceClaims.Domain.PayoutProcessing.Payout
+        {
+            Id = Guid.NewGuid(),
+            ClaimId = claim.Id,
+            ApprovedClaimAmount = 20000m,
+            CoverageLimit = 50000m,
+            Deductible = 500m,
+            ProposedPayout = 19500m,
+            FinalPayout = 19500m,
+            Status = InsuranceClaims.Domain.PayoutProcessing.PayoutStatus.Approved
+        };
+        _context.Payouts.Add(payout);
+        await _context.SaveChangesAsync();
+
+        SetUserContext(_staffUserId, "Underwriter");
+
+        // Edit policy A coverage limit from 50000 to 120000
+        var dto = new UpdatePolicyDto
+        {
+            CoverageLimit = 120000m
+        };
+
+        var result = await _controller.Update(_policyA.Id, dto);
+        Assert.IsType<OkObjectResult>(result.Result);
+
+        // Verify historical payout remains completely unchanged
+        var refreshedPayout = await _context.Payouts.FindAsync(payout.Id);
+        Assert.NotNull(refreshedPayout);
+        Assert.Equal(50000m, refreshedPayout.CoverageLimit);
+        Assert.Equal(500m, refreshedPayout.Deductible);
+        Assert.Equal(19500m, refreshedPayout.FinalPayout);
+    }
 }

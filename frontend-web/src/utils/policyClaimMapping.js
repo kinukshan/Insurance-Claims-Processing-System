@@ -72,3 +72,33 @@ export function getCompatibleClaimType(policyTypeName) {
 export function isPolicySupportedForClaims(policyTypeName) {
   return getCompatibleClaimType(policyTypeName) !== null;
 }
+
+/**
+ * Authoritative fixed deductible amounts by insurance type.
+ */
+export const FIXED_DEDUCTIBLES = {
+  'Motor Insurance': 10000,
+  'Health Insurance': 5000,
+  'Home Insurance': 15000,
+  'Life Insurance': 0,
+};
+
+/**
+ * Returns the fixed deductible amount for a given policy type name,
+ * or null if unrecognized.
+ */
+export function getFixedDeductible(policyTypeName) {
+  const normalized = normalizePolicyTypeName(policyTypeName);
+  if (normalized && FIXED_DEDUCTIBLES[normalized] !== undefined) {
+    return FIXED_DEDUCTIBLES[normalized];
+  }
+  return null;
+}
+
+/**
+ * Formats a deductible amount as a currency string (e.g., "$10,000", "$0").
+ */
+export function formatDeductible(amount) {
+  if (amount == null || isNaN(amount)) return '$0';
+  return `$${Number(amount).toLocaleString('en-US')}`;
+}

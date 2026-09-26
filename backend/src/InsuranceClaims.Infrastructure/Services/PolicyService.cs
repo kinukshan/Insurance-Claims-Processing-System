@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using InsuranceClaims.Application.Common.Exceptions;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
@@ -17,10 +18,12 @@ namespace InsuranceClaims.Infrastructure.Services;
 public class PolicyService : IPolicyService
 {
     private readonly ApplicationDbContext _context;
+    private readonly Microsoft.Extensions.Logging.ILogger<PolicyService>? _logger;
 
-    public PolicyService(ApplicationDbContext context)
+    public PolicyService(ApplicationDbContext context, Microsoft.Extensions.Logging.ILogger<PolicyService>? logger = null)
     {
         _context = context;
+        _logger = logger;
     }
 
     public async Task<IEnumerable<PolicyDto>> GetAllAsync()
@@ -80,11 +83,16 @@ public class PolicyService : IPolicyService
         if (policyType == null)
             throw new ArgumentException($"Policy type with ID '{dto.PolicyTypeId}' not found.");
 
-        // Life Insurance has a PROJECT BUSINESS RULE: Deductible = 0
-        var effectiveDeductible = (policyType.Id == PolicyClaimCompatibility.LifeInsuranceId || PolicyClaimCompatibility.IsLifeInsurance(policyType.Name))
-            ? 0m
-            : dto.Deductible;
+        // Identify fixed deductible from authoritative backend data
+        var fixedDeductible = PolicyClaimCompatibility.GetFixedDeductible(policyType.Id)
+            ?? PolicyClaimCompatibility.GetFixedDeductible(policyType.Name);
 
+        if (!fixedDeductible.HasValue)
+        {
+            throw new ArgumentException($"Unsupported policy type '{policyType.Name}'.");
+        }
+
+        // Always enforce authoritative fixed deductible (ignoring any client-submitted deductible)
         var policy = new Policy
         {
             Id = Guid.NewGuid(),
@@ -92,7 +100,7 @@ public class PolicyService : IPolicyService
             PolicyholderId = dto.PolicyholderId,
             PolicyTypeId = dto.PolicyTypeId,
             CoverageLimit = dto.CoverageLimit,
-            Deductible = effectiveDeductible,
+            Deductible = fixedDeductible.Value,
             StartDate = dto.StartDate,
             ExpiryDate = dto.ExpiryDate,
             Exclusions = dto.Exclusions,
@@ -121,10 +129,22 @@ public class PolicyService : IPolicyService
 
     public async Task<PolicyDto?> UpdateAsync(Guid id, UpdatePolicyDto dto, Guid? requestingUserId, Role? userRole)
     {
+        // 1. Role-based authorization: only Underwriters and Admins (or system/internal calls without role) can edit
+        if (userRole == Role.Policyholder)
+            throw new UnauthorizedAccessException("Policyholders do not have permission to update policies.");
+
+        if (userRole == Role.ClaimsAdjuster)
+            throw new UnauthorizedAccessException("Claims adjusters do not have permission to update policies.");
+
+        if (userRole.HasValue && userRole != Role.Underwriter && userRole != Role.Admin)
+            throw new UnauthorizedAccessException("Only Underwriters and Admins are authorized to update policies.");
+
+        // 2. Validate update payload
         var errors = PolicyValidator.ValidateUpdate(dto);
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors));
 
+        // 3. Find existing policy
         var policy = await _context.Policies
             .Include(p => p.PolicyType)
             .Include(p => p.Coverages)
@@ -133,27 +153,65 @@ public class PolicyService : IPolicyService
         if (policy == null)
             return null;
 
-        if (userRole == Role.Policyholder && requestingUserId.HasValue && policy.PolicyholderId != requestingUserId.Value)
-            throw new UnauthorizedAccessException("You do not have permission to update this policy.");
+        // 4. Role-specific field restriction: Underwriter cannot change policy status
+        if (dto.Status != null)
+        {
+            if (userRole.HasValue && userRole != Role.Admin)
+            {
+                if (!string.Equals(dto.Status, policy.Status.ToString(), StringComparison.OrdinalIgnoreCase))
+                    throw new UnauthorizedAccessException("Underwriters do not have permission to change policy status.");
+            }
+        }
 
+        // 5. Validated status transitions (Admin or internal operations)
+        if (dto.Status != null && (!userRole.HasValue || userRole == Role.Admin))
+        {
+            if (!Enum.TryParse<PolicyStatus>(dto.Status, true, out var newStatus))
+                throw new ArgumentException($"Invalid status '{dto.Status}'.");
+
+            if (newStatus != policy.Status)
+            {
+                if (policy.Status == PolicyStatus.Cancelled)
+                    throw new ArgumentException("Cannot transition a cancelled policy to any other status. Cancelled is a terminal state.");
+
+                var isValidTransition = policy.Status switch
+                {
+                    PolicyStatus.Draft => newStatus == PolicyStatus.Active || newStatus == PolicyStatus.Cancelled,
+                    PolicyStatus.Active => newStatus == PolicyStatus.Expired || newStatus == PolicyStatus.Lapsed || newStatus == PolicyStatus.Cancelled,
+                    PolicyStatus.Expired => newStatus == PolicyStatus.Active || newStatus == PolicyStatus.Lapsed || newStatus == PolicyStatus.Cancelled,
+                    PolicyStatus.Lapsed => newStatus == PolicyStatus.Cancelled,
+                    _ => false
+                };
+
+                if (!isValidTransition)
+                    throw new ArgumentException($"Cannot transition policy from '{policy.Status}' to '{newStatus}'.");
+
+                policy.Status = newStatus;
+            }
+        }
+
+        // 6. Coverage limit validation and update
+        if (dto.CoverageLimit.HasValue)
+        {
+            if (dto.CoverageLimit.Value <= 0)
+                throw new ArgumentException("Coverage limit must be greater than zero.");
+            policy.CoverageLimit = dto.CoverageLimit.Value;
+        }
+
+        // 7. Deductible protection & PolicyType resolution
         // PolicyService.UpdateAsync must NOT assume policy.PolicyType is already loaded.
         var policyType = policy.PolicyType ?? await _context.PolicyTypes.FindAsync(policy.PolicyTypeId);
         var isLife = policyType != null && (policyType.Id == PolicyClaimCompatibility.LifeInsuranceId || PolicyClaimCompatibility.IsLifeInsurance(policyType.Name));
 
-        // Apply updates
-        if (dto.CoverageLimit.HasValue)
-            policy.CoverageLimit = dto.CoverageLimit.Value;
-
-        if (dto.Deductible.HasValue)
-        {
-            // Life Insurance has a PROJECT BUSINESS RULE: Deductible = 0
-            policy.Deductible = isLife ? 0m : dto.Deductible.Value;
-        }
-        else if (isLife && policy.Deductible != 0m)
+        // Existing policy agreed deductibles are preserved; Life Insurance strictly enforces 0m.
+        // General policy edit requests cannot bypass the fixed-deductible rule or alter agreed terms.
+        if (isLife)
         {
             policy.Deductible = 0m;
         }
+        // Non-Life existing policy deductibles remain untouched (dto.Deductible is ignored).
 
+        // 8. Expiry date validation and update
         if (dto.ExpiryDate.HasValue)
         {
             if (dto.ExpiryDate.Value <= policy.StartDate)
@@ -161,23 +219,21 @@ public class PolicyService : IPolicyService
             policy.ExpiryDate = dto.ExpiryDate.Value;
         }
 
+        // 9. Exclusions update
         if (dto.Exclusions != null)
             policy.Exclusions = dto.Exclusions;
 
-        if (dto.Status != null)
-        {
-            if (Enum.TryParse<PolicyStatus>(dto.Status, true, out var newStatus))
-                policy.Status = newStatus;
-            else
-                throw new ArgumentException($"Invalid status '{dto.Status}'.");
-        }
-
-        // Recalculate premium if coverage/deductible changed
-        if (dto.CoverageLimit.HasValue || dto.Deductible.HasValue)
+        // 10. Recalculate premium only if coverage limit changed
+        if (dto.CoverageLimit.HasValue)
         {
             if (policyType != null)
                 policy.Premium = CalculatePremium(policy, policyType);
         }
+
+        // 11. Policy audit logging
+        _logger?.LogInformation(
+            "Policy {PolicyId} updated by User {UserId} (Role: {Role}). CoverageLimit={CoverageLimit}, ExpiryDate={ExpiryDate}, Status={Status}",
+            policy.Id, requestingUserId, userRole, policy.CoverageLimit, policy.ExpiryDate, policy.Status);
 
         await _context.SaveChangesAsync();
 

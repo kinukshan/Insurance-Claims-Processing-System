@@ -80,7 +80,7 @@ describe('PolicyClaimMapping Utility Tests', () => {
   })
 })
 
-describe('PolicyCreate Insurance Class Grouping & Life Deductible Rule', () => {
+describe('PolicyCreate Insurance Class Grouping & Fixed Deductible Rule', () => {
   const mockPolicyTypes = [
     {
       id: '22222222-2222-4222-8222-222222222221',
@@ -90,6 +90,16 @@ describe('PolicyCreate Insurance Class Grouping & Life Deductible Rule', () => {
       insuranceClassCode: 'General',
       insuranceClassName: 'General Insurance',
       defaultCoverageLimit: 500000,
+      defaultDeductible: 10000,
+    },
+    {
+      id: '22222222-2222-4222-8222-222222222222',
+      name: 'Health Insurance',
+      description: 'Medical expenses cover',
+      insuranceClass: 0,
+      insuranceClassCode: 'General',
+      insuranceClassName: 'General Insurance',
+      defaultCoverageLimit: 1000000,
       defaultDeductible: 5000,
     },
     {
@@ -99,8 +109,8 @@ describe('PolicyCreate Insurance Class Grouping & Life Deductible Rule', () => {
       insuranceClass: 0,
       insuranceClassCode: 'General',
       insuranceClassName: 'General Insurance',
-      defaultCoverageLimit: 1000000,
-      defaultDeductible: 10000,
+      defaultCoverageLimit: 750000,
+      defaultDeductible: 15000,
     },
     {
       id: '22222222-2222-4222-8222-222222222224',
@@ -137,7 +147,7 @@ describe('PolicyCreate Insurance Class Grouping & Life Deductible Rule', () => {
     expect(screen.getByText(/Life Insurance/)).toBeInTheDocument()
   })
 
-  it('enforces Life deductible = 0 and shows project rule note when Life Insurance selected', async () => {
+  it('enforces Life deductible = $0 and shows project rule note when Life Insurance selected', async () => {
     render(<PolicyCreate onBack={() => {}} onCreated={() => {}} />)
 
     await waitFor(() => {
@@ -149,11 +159,78 @@ describe('PolicyCreate Insurance Class Grouping & Life Deductible Rule', () => {
 
     // Life Insurance project rule message displayed
     expect(screen.getByText('Project rule: Life Insurance deductible is $0.')).toBeInTheDocument()
+    expect(screen.getByText(/The deductible is fixed according to your selected insurance type/)).toBeInTheDocument()
 
-    // Deductible input is disabled and has value 0
+    // Deductible input is disabled, read-only, and displays $0
     const deductibleInput = screen.getByPlaceholderText('1000')
     expect(deductibleInput).toBeDisabled()
-    expect(deductibleInput.value).toBe('0')
+    expect(deductibleInput).toHaveAttribute('readonly')
+    expect(deductibleInput.value).toBe('$0')
+  })
+
+  it('automatically displays each fixed deductible ($10,000 for Motor, $5,000 for Health, $15,000 for Home) in read-only field', async () => {
+    render(<PolicyCreate onBack={() => {}} onCreated={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Select a policy type...')).toBeInTheDocument()
+    })
+
+    const select = screen.getByRole('combobox')
+    const deductibleInput = screen.getByPlaceholderText('1000')
+
+    // Select Motor Insurance
+    fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222221' } })
+    expect(deductibleInput.value).toBe('$10,000')
+    expect(deductibleInput).toHaveAttribute('readonly')
+    expect(deductibleInput).toBeDisabled()
+
+    // Select Health Insurance
+    fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222222' } })
+    expect(deductibleInput.value).toBe('$5,000')
+    expect(deductibleInput).toHaveAttribute('readonly')
+    expect(deductibleInput).toBeDisabled()
+
+    // Select Home Insurance
+    fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222223' } })
+    expect(deductibleInput.value).toBe('$15,000')
+    expect(deductibleInput).toHaveAttribute('readonly')
+    expect(deductibleInput).toBeDisabled()
+
+    // Select Life Insurance
+    fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222224' } })
+    expect(deductibleInput.value).toBe('$0')
+    expect(deductibleInput).toHaveAttribute('readonly')
+    expect(deductibleInput).toBeDisabled()
+  })
+
+  it('displays backend-confirmed deductible upon successful creation', async () => {
+    policyService.createPolicy.mockResolvedValueOnce({
+      id: 'pol-123',
+      policyNumber: 'POL-MTR-999',
+      deductible: 10000,
+      coverageLimit: 500000,
+    })
+
+    render(<PolicyCreate onBack={() => {}} onCreated={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Select a policy type...')).toBeInTheDocument()
+    })
+
+    const select = screen.getByRole('combobox')
+    fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222221' } })
+
+    const startDateInput = screen.getByLabelText(/Start Date/i)
+    const expiryDateInput = screen.getByLabelText(/Expiry Date/i)
+    fireEvent.change(startDateInput, { target: { value: '2026-10-01' } })
+    fireEvent.change(expiryDateInput, { target: { value: '2027-10-01' } })
+
+    const submitBtn = screen.getByRole('button', { name: /Create Policy/i })
+    fireEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Confirmed Deductible: \$10,000/i)).toBeInTheDocument()
+    })
   })
 })
 

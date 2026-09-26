@@ -462,4 +462,35 @@ describe('PayoutApproval', () => {
       expect(screen.getByText('Payment execution failed due to an internal system error. Please contact an administrator.')).toBeTruthy()
     })
   })
+
+  it('hides execute button and shows clear notice when approved payout has zero payable amount due to deductible', async () => {
+    mockAuth.role = 'Admin'
+    const zeroApprovedPayout = {
+      ...mockPayout,
+      id: 'payout-zero-approved',
+      status: 2,
+      statusDisplay: 'Approved',
+      approvedBy: 'Admin Reviewer',
+      approvedClaimAmount: 5000,
+      coverageLimit: 500000,
+      deductible: 10000,
+      proposedPayout: 0,
+      finalPayout: 0,
+    }
+    getPayoutById.mockResolvedValueOnce(zeroApprovedPayout)
+
+    render(<PayoutApproval />)
+    const input = screen.getByPlaceholderText(/Enter Payout ID/i)
+    fireEvent.change(input, { target: { value: 'payout-zero-approved' } })
+    fireEvent.click(screen.getByText(/Load Payout/i))
+
+    await waitFor(() => {
+      // Execute button must NOT be rendered
+      expect(screen.queryByText(/▶ Execute Payout/i)).toBeNull()
+      // Zero payout notice must be displayed
+      expect(screen.getByText('No payment disbursement required for zero-value payout.')).toBeTruthy()
+      // Deductible explanation must be displayed
+      expect(screen.getByText('Your eligible claim amount does not exceed your policy deductible. No insurance payout is payable for this claim.')).toBeTruthy()
+    })
+  })
 })

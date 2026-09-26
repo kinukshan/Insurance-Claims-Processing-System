@@ -286,6 +286,13 @@ public class PayoutService : IPayoutService
         var payout = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException($"Payout '{id}' not found.");
 
+        // PREVENT ZERO-VALUE PAYOUTS FROM EVER EXECUTING OR REACHING PAYMENT GATEWAYS
+        if (payout.FinalPayout <= 0)
+        {
+            throw new InvalidOperationException(
+                "Cannot execute a zero-value payout. Eligible claim amount does not exceed the policy deductible.");
+        }
+
         // CRITICAL: A payout must NOT execute before valid human approval
         if (!Payout.IsValidTransition(payout.Status, PayoutStatus.Processing))
         {
@@ -325,6 +332,13 @@ public class PayoutService : IPayoutService
 
     private static PayoutDto MapToDto(Payout payout)
     {
+        var eligible = Math.Min(payout.ApprovedClaimAmount, payout.CoverageLimit);
+        string? explanation = null;
+        if (payout.FinalPayout <= 0 && payout.Deductible > 0 && eligible <= payout.Deductible)
+        {
+            explanation = "Your eligible claim amount does not exceed your policy deductible. No insurance payout is payable for this claim.";
+        }
+
         return new PayoutDto
         {
             Id = payout.Id,
@@ -335,6 +349,7 @@ public class PayoutService : IPayoutService
             Deductible = payout.Deductible,
             ProposedPayout = payout.ProposedPayout,
             FinalPayout = payout.FinalPayout,
+            Explanation = explanation,
             Status = payout.Status,
             ApprovedBy = payout.ApprovedBy,
             ApprovalTimestamp = payout.ApprovalTimestamp,

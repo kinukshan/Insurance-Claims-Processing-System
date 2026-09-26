@@ -29,7 +29,7 @@ public static class PolicyTypeSeeder
                 Description = "Coverage for insured motor vehicles and related losses.",
                 BasePremiumRate = 15.00m,
                 DefaultCoverageLimit = 500000.00m,
-                DefaultDeductible = 10000.00m,
+                DefaultDeductible = PolicyClaimCompatibility.MotorDeductible,
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.General,
                 IsActive = true
@@ -41,7 +41,7 @@ public static class PolicyTypeSeeder
                 Description = "Coverage for eligible medical and healthcare expenses.",
                 BasePremiumRate = 20.00m,
                 DefaultCoverageLimit = 1000000.00m,
-                DefaultDeductible = 5000.00m,
+                DefaultDeductible = PolicyClaimCompatibility.HealthDeductible,
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.General,
                 IsActive = true
@@ -53,7 +53,7 @@ public static class PolicyTypeSeeder
                 Description = "Coverage for residential property and insured property damage.",
                 BasePremiumRate = 10.00m,
                 DefaultCoverageLimit = 750000.00m,
-                DefaultDeductible = 15000.00m,
+                DefaultDeductible = PolicyClaimCompatibility.HomeDeductible,
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.General,
                 IsActive = true
@@ -65,7 +65,7 @@ public static class PolicyTypeSeeder
                 Description = "Long-term life insurance covering eligible death benefits.",
                 BasePremiumRate = 25.00m,
                 DefaultCoverageLimit = 2000000.00m,
-                DefaultDeductible = 0.00m, // Project Business Rule: Life Insurance deductible is 0
+                DefaultDeductible = PolicyClaimCompatibility.LifeDeductible, // Project Business Rule: Life Insurance deductible is 0
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.LongTerm,
                 IsActive = true

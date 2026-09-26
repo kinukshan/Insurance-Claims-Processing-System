@@ -21,6 +21,6 @@ public interface IClaimService
     Task<bool> DeleteDocumentAsync(Guid claimId, Guid documentId, Guid requestingUserId, Role userRole);
     Task<List<ClaimDocumentDto>> GetDocumentsAsync(Guid claimId, Guid requestingUserId, Role userRole);
     Task<CoverageValidationResultDto> ValidateCoverageAsync(Guid claimId, Guid requestingUserId, Role userRole);
-    Task<DocumentVerificationResultDto> VerifyDocumentsAsync(Guid claimId, Guid requestingUserId, Role userRole);
+    Task<DocumentVerificationResultDto> VerifyDocumentsAsync(Guid claimId, Guid requestingUserId, Role userRole, string? idempotencyKey = null);
     Task<ClaimDocumentRequirementsDto?> GetDocumentRequirementsAsync(Guid claimId, Guid requestingUserId, Role userRole);
 }

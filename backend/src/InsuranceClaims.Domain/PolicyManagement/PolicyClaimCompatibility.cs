@@ -20,6 +20,43 @@ public static class PolicyClaimCompatibility
     public static readonly Guid HomeInsuranceId = Guid.Parse("22222222-2222-4222-8222-222222222223");
     public static readonly Guid LifeInsuranceId = Guid.Parse("22222222-2222-4222-8222-222222222224");
 
+    // Canonical Fixed Deductibles
+    public const decimal MotorDeductible = 10000.00m;
+    public const decimal HealthDeductible = 5000.00m;
+    public const decimal HomeDeductible = 15000.00m;
+    public const decimal LifeDeductible = 0.00m;
+
+    /// <summary>
+    /// Authoritative source of fixed deductibles by canonical policy type name or alias.
+    /// Fails closed (returns null) for unknown or unsupported policy types.
+    /// </summary>
+    public static decimal? GetFixedDeductible(string? rawPolicyTypeName)
+    {
+        var normalized = NormalizePolicyType(rawPolicyTypeName);
+        return normalized switch
+        {
+            MotorInsurance => MotorDeductible,
+            HealthInsurance => HealthDeductible,
+            HomeInsurance => HomeDeductible,
+            LifeInsurance => LifeDeductible,
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Authoritative source of fixed deductibles by deterministic policy type ID.
+    /// Fails closed (returns null) for unknown policy type IDs.
+    /// </summary>
+    public static decimal? GetFixedDeductible(Guid policyTypeId)
+    {
+        if (policyTypeId == MotorInsuranceId) return MotorDeductible;
+        if (policyTypeId == HealthInsuranceId) return HealthDeductible;
+        if (policyTypeId == HomeInsuranceId) return HomeDeductible;
+        if (policyTypeId == LifeInsuranceId) return LifeDeductible;
+        return null;
+    }
+
+
     /// <summary>
     /// Safely normalizes raw/input policy type names with whitespace trimming,
     /// case-insensitivity, and display-alias support (e.g., "Home / Property Insurance" -> "Home Insurance").

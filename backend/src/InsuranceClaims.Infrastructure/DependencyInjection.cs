@@ -20,6 +20,9 @@ using InsuranceClaims.Infrastructure.AgentIntegration;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
 using InsuranceClaims.Application.PayoutProcessing.Services;
 using InsuranceClaims.Application.Authentication;
+using InsuranceClaims.Application.Notifications.Interfaces;
+using InsuranceClaims.Application.Notifications.Services;
+using InsuranceClaims.Infrastructure.ExternalServices.Email;
 
 namespace InsuranceClaims.Infrastructure;
 
@@ -32,6 +35,8 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddSingleton(configuration);
+
         // Database
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseNpgsql(
@@ -157,6 +162,45 @@ public static class DependencyInjection
 
         // Agent integration: ASP.NET Core → Internal AI Service
         services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
+
+        // ── Notifications ────────────────────────────────────────────
+        // Repository
+        services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
+
+        // Email service: Provider selected via configuration (default: "Mock")
+        var emailProvider = configuration["Notification:Email:Provider"]
+            ?? "Mock";
+
+        if (string.Equals(emailProvider, "Mock", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<IEmailService, MockEmailService>();
+        }
+        else if (string.Equals(emailProvider, "Resend", StringComparison.OrdinalIgnoreCase))
+        {
+            var timeoutSeconds = 30;
+            if (int.TryParse(configuration["Notification:Email:Resend:TimeoutSeconds"], out var configuredTimeout)
+                && configuredTimeout > 0)
+            {
+                timeoutSeconds = configuredTimeout;
+            }
+
+            services.AddHttpClient<IEmailService, ResendEmailService>(client =>
+            {
+                client.BaseAddress = new Uri("https://api.resend.com");
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            });
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Unsupported email provider '{emailProvider}'. Supported values: 'Mock', 'Resend'.");
+        }
+
+        // Orchestrator
+        services.AddScoped<INotificationOrchestrator, NotificationOrchestrator>();
+
+        // User email resolver (server-side recipient lookup)
+        services.AddScoped<IUserEmailResolver, UserEmailResolver>();
 
         return services;
     }

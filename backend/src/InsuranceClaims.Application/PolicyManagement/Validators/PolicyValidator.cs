@@ -59,6 +59,9 @@ public static class PolicyValidator
         if (dto.Exclusions != null && dto.Exclusions.Length > 2000)
             errors.Add("Exclusions text cannot exceed 2000 characters.");
 
+        if (dto.ExpiryDate.HasValue && dto.ExpiryDate.Value == default)
+            errors.Add("Expiry date is required.");
+
         if (dto.Status != null)
         {
             var validStatuses = new[] { "Draft", "Active", "Expired", "Lapsed", "Cancelled" };

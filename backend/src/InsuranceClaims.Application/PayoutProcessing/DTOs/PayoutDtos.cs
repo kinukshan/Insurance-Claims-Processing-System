@@ -20,6 +20,9 @@ public class PayoutDto
     public decimal ProposedPayout { get; set; }
     public decimal FinalPayout { get; set; }
 
+    /// <summary>Contextual explanation for payout calculation (e.g., when claim does not exceed deductible).</summary>
+    public string? Explanation { get; set; }
+
     // ── Status ───────────────────────────────────────────────────────
     public PayoutStatus Status { get; set; }
     public string StatusDisplay => Status.ToString();

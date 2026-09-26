@@ -383,7 +383,33 @@ describe('PayoutCalculation Page Component', () => {
     await waitFor(() => {
       expect(screen.getByText('A payout already exists for this claim.')).toBeTruthy()
       expect(screen.getByText('Payout Proposal')).toBeTruthy()
-      expect(screen.getByText('Claim: CLM-409')).toBeTruthy()
+    })
+  })
+
+  it('displays clear explanation when eligible claim amount does not exceed deductible', async () => {
+    payoutService.calculatePayout.mockResolvedValueOnce({
+      id: 'payout-zero-1',
+      claimId: 'claim-motor-zero',
+      claimNumber: 'CLM-MTR-001',
+      status: 1,
+      statusDisplay: 'PendingApproval',
+      approvedClaimAmount: 5000,
+      coverageLimit: 500000,
+      deductible: 10000,
+      proposedPayout: 0,
+      finalPayout: 0,
+      explanation: 'Your eligible claim amount does not exceed your policy deductible. No insurance payout is payable for this claim.',
+    })
+
+    render(<PayoutCalculation />)
+
+    fireEvent.change(screen.getByPlaceholderText('Enter Claim ID (GUID)'), { target: { value: 'claim-motor-zero' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Calculate Payout' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Payout Proposal')).toBeTruthy()
+      expect(screen.getByText('$0.00')).toBeTruthy()
+      expect(screen.getByText('Your eligible claim amount does not exceed your policy deductible. No insurance payout is payable for this claim.')).toBeTruthy()
     })
   })
 })

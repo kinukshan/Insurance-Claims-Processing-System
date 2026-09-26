@@ -51,6 +51,24 @@ function PayoutBreakdown({ payout }) {
         <span style={{ ...labelStyle, fontWeight: 600, color: '#1976d2' }}>Final Payout</span>
         <span style={highlightValue}>{fmt(payout.finalPayout)}</span>
       </div>
+
+      {((payout.finalPayout <= 0 || payout.proposedPayout <= 0) && payout.deductible > 0 && eligible <= payout.deductible) && (
+        <div
+          id="payout-zero-deductible-notice"
+          style={{
+            marginTop: '14px',
+            padding: '12px 14px',
+            backgroundColor: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '6px',
+            color: '#1e40af',
+            fontSize: '0.9rem',
+            lineHeight: 1.4,
+          }}
+        >
+          Your eligible claim amount does not exceed your policy deductible. No insurance payout is payable for this claim.
+        </div>
+      )}
     </div>
   )
 }

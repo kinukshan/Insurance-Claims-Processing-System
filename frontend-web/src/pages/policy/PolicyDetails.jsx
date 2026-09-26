@@ -1,12 +1,26 @@
-// Policy details — Component A (Member 1)
-// Implements full policy detail view with coverage, premium calc, renewal, status badge
-
 import React, { useState, useEffect, useCallback } from 'react'
 import PolicyStatusBadge from '../../components/policy/PolicyStatusBadge'
 import CoverageTable from '../../components/policy/CoverageTable'
 import { getPolicyById, calculatePremium, renewPolicy, getCoverage } from '../../services/policyService'
+import { useAuth } from '../../context/AuthContext'
+
+function useOptionalAuth() {
+  try {
+    const auth = useAuth()
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    }
+  } catch {
+    return { role: null, user: null }
+  }
+}
 
 function PolicyDetails({ policyId, onBack, onEdit }) {
+  const { role, user } = useOptionalAuth()
+  const currentRole = role || user?.role
+  const canEdit = currentRole === 'Underwriter' || currentRole === 'Admin'
+
   const [policy, setPolicy] = useState(null)
   const [coverages, setCoverages] = useState([])
   const [premiumResult, setPremiumResult] = useState(null)
@@ -145,7 +159,7 @@ function PolicyDetails({ policyId, onBack, onEdit }) {
           <PolicyStatusBadge status={policy.status} />
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {onEdit && (
+          {canEdit && onEdit && (
             <button
               onClick={() => onEdit(policy.id)}
               style={{

@@ -1,6 +1,8 @@
 using System.Text.Json;
+using InsuranceClaims.Application.Notifications.Interfaces;
 using InsuranceClaims.Application.PayoutProcessing.DTOs;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
+using InsuranceClaims.Domain.Notifications;
 using InsuranceClaims.Domain.PayoutProcessing;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -30,19 +32,26 @@ public class PaymentWebhookController : ControllerBase
     private readonly IPaymentGateway _paymentGateway;
     private readonly IPaymentTransactionRepository _transactionRepository;
     private readonly IPayoutRepository _payoutRepository;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
+    private readonly IUserEmailResolver? _userEmailResolver;
     private readonly ILogger<PaymentWebhookController> _logger;
 
     public PaymentWebhookController(
         IPaymentGateway paymentGateway,
         IPaymentTransactionRepository transactionRepository,
         IPayoutRepository payoutRepository,
-        ILogger<PaymentWebhookController>? logger = null)
+        ILogger<PaymentWebhookController>? logger = null,
+        INotificationOrchestrator? notificationOrchestrator = null,
+        IUserEmailResolver? userEmailResolver = null)
     {
         _paymentGateway = paymentGateway;
         _transactionRepository = transactionRepository;
         _payoutRepository = payoutRepository;
         _logger = logger ?? NullLogger<PaymentWebhookController>.Instance;
+        _notificationOrchestrator = notificationOrchestrator;
+        _userEmailResolver = userEmailResolver;
     }
+
 
     /// <summary>
     /// Receive payment status webhook from Mock provider.
@@ -176,7 +185,10 @@ public class PaymentWebhookController : ControllerBase
                 payout.Status = PayoutStatus.Failed;
                 await _payoutRepository.UpdateAsync(payout);
             }
+
+            await TryNotifyPayoutStatusAsync(payout, transaction);
         }
+
 
         _logger.LogInformation(
             "Mock webhook processed: TransactionId={TransactionId}, Event={EventType}, " +
@@ -503,6 +515,8 @@ public class PaymentWebhookController : ControllerBase
                     await _payoutRepository.UpdateAsync(payout);
                 }
                 // Unclaimed, OnHold, Blocked, Processing: Payout remains in Processing (NOT Paid, NOT Failed)
+
+                await TryNotifyPayoutStatusAsync(payout, transaction);
             }
 
             _logger.LogInformation(
@@ -510,6 +524,47 @@ public class PaymentWebhookController : ControllerBase
                 eventType, transaction.Id, transaction.PayoutId, transaction.Status);
 
             return Ok(new { status = "processed", eventType });
+        }
+    }
+
+    private async Task TryNotifyPayoutStatusAsync(Payout payout, PaymentTransaction transaction)
+    {
+        if (_notificationOrchestrator == null || _userEmailResolver == null) return;
+        if (payout.Claim == null || payout.Claim.PolicyHolderId == Guid.Empty) return;
+
+        try
+        {
+            var email = await _userEmailResolver.GetEmailAsync(payout.Claim.PolicyHolderId);
+            if (string.IsNullOrWhiteSpace(email)) return;
+
+            if (payout.Status == PayoutStatus.Paid)
+            {
+                var key = $"payout:{payout.Id}:completed";
+                await _notificationOrchestrator.NotifyAsync(
+                    key,
+                    payout.Claim.PolicyHolderId,
+                    email,
+                    payout.ClaimId,
+                    NotificationType.PayoutCompleted,
+                    payout.Claim.ClaimNumber,
+                    payout.Id);
+            }
+            else if (payout.Status == PayoutStatus.Failed)
+            {
+                var key = $"payout:{payout.Id}:failed:{transaction.Id}";
+                await _notificationOrchestrator.NotifyAsync(
+                    key,
+                    payout.Claim.PolicyHolderId,
+                    email,
+                    payout.ClaimId,
+                    NotificationType.PayoutFailed,
+                    payout.Claim.ClaimNumber,
+                    payout.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Non-authoritative notification failed for webhook payout {PayoutId}", payout.Id);
         }
     }
 

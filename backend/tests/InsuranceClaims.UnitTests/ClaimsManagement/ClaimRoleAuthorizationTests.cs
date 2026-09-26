@@ -2,7 +2,10 @@ using System.Security.Claims;
 using InsuranceClaims.Api.Controllers;
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Services;
+using InsuranceClaims.Application.Notifications.DTOs;
+using InsuranceClaims.Application.Notifications.Interfaces;
 using InsuranceClaims.Domain.ClaimsManagement;
+using InsuranceClaims.Domain.Notifications;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Enums;
 using InsuranceClaims.Domain.Users;
@@ -53,7 +56,7 @@ public class ClaimRoleAuthorizationTests : IDisposable
         _verificationClient = new FakeDocumentVerificationClient();
 
         _claimService = new ClaimService(_claimRepository, _storageService, _policyValidation, _verificationClient);
-        _controller = new ClaimsController(_claimService);
+        _controller = new ClaimsController(_claimService, new StubNotificationOrchestrator(), new StubUserEmailResolver());
 
         SeedTestData();
     }
@@ -330,5 +333,41 @@ public class ClaimRoleAuthorizationTests : IDisposable
 
         var objResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status403Forbidden, objResult.StatusCode);
+    }
+
+    private class StubNotificationOrchestrator : INotificationOrchestrator
+    {
+        public Task<bool> NotifyAsync(
+            string notificationKey,
+            Guid userId,
+            string recipientEmail,
+            Guid? claimId,
+            NotificationType type,
+            string? claimNumber = null,
+            Guid? payoutId = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> NotifyAsync(
+            Guid userId,
+            string recipientEmail,
+            Guid? claimId,
+            NotificationType type,
+            string? claimNumber = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+    }
+
+
+    private class StubUserEmailResolver : IUserEmailResolver
+    {
+        public Task<string?> GetEmailAsync(Guid userId)
+        {
+            return Task.FromResult<string?>("user@example.com");
+        }
     }
 }

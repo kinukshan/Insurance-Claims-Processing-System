@@ -318,8 +318,8 @@ function PayoutApproval() {
             </div>
           )}
 
-          {/* Show execute button only for Approved payouts AND Admin role */}
-          {payout.statusDisplay === 'Approved' && canExecute && (
+          {/* Show execute button only for Approved payouts AND Admin role with positive payable amount */}
+          {payout.statusDisplay === 'Approved' && canExecute && payout.finalPayout > 0 && (
             <div style={{ marginTop: '16px' }}>
               <button
                 id="payout-execute-btn"
@@ -334,6 +334,24 @@ function PayoutApproval() {
                   {isPayPal ? 'Sending to PayPal Sandbox...' : 'Processing Payment...'}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Zero-value payout notice instead of execute button */}
+          {payout.statusDisplay === 'Approved' && canExecute && payout.finalPayout <= 0 && (
+            <div
+              id="payout-zero-execution-notice"
+              style={{
+                marginTop: '16px',
+                padding: '12px',
+                backgroundColor: '#f3f4f6',
+                border: '1px solid #e5e7eb',
+                borderRadius: '6px',
+                color: '#4b5563',
+                fontSize: '0.9rem',
+              }}
+            >
+              No payment disbursement required for zero-value payout.
             </div>
           )}
 
@@ -352,11 +370,12 @@ function PayoutApproval() {
           )}
 
           {/* Show message when non-Admin views an approved payout */}
-          {payout.statusDisplay === 'Approved' && !canExecute && (
+          {payout.statusDisplay === 'Approved' && !canExecute && payout.finalPayout > 0 && (
             <div style={{ padding: '12px', backgroundColor: '#e3f2fd', color: '#1565c0', borderRadius: '6px', marginTop: '16px' }}>
               This payout is approved and ready for execution. An Admin must execute it.
             </div>
           )}
+
 
           {/* Approval history */}
           {payout.approvals && payout.approvals.length > 0 && (

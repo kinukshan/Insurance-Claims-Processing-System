@@ -1,12 +1,28 @@
-// Edit policy — Component A (Member 1)
-// Pre-populates form with existing policy data, validates, and submits update
-
 import React, { useState, useEffect } from 'react'
 import { getPolicyById, updatePolicy } from '../../services/policyService'
+import { useAuth } from '../../context/AuthContext'
 
 const STATUS_OPTIONS = ['Draft', 'Active', 'Cancelled']
 
+function useOptionalAuth() {
+  try {
+    const auth = useAuth()
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    }
+  } catch {
+    return { role: null, user: null }
+  }
+}
+
 function PolicyEdit({ policyId, onBack, onUpdated }) {
+  const { role, user } = useOptionalAuth()
+  const currentRole = role || user?.role
+  const isUnderwriter = currentRole === 'Underwriter'
+  const isAdmin = currentRole === 'Admin'
+  const canEdit = isUnderwriter || isAdmin
+
   const [formData, setFormData] = useState({
     coverageLimit: '',
     deductible: '',
@@ -40,7 +56,11 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
         setLoading(false)
       }
     }
-    fetchPolicy()
+    if (policyId) {
+      fetchPolicy()
+    } else {
+      setLoading(false)
+    }
   }, [policyId])
 
   const handleChange = (e) => {
@@ -59,11 +79,6 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
       newErrors.coverageLimit = 'Coverage limit must be greater than zero.'
     }
 
-    const deductible = Number(formData.deductible)
-    if (formData.deductible !== '' && deductible < 0) {
-      newErrors.deductible = 'Deductible cannot be negative.'
-    }
-
     if (formData.exclusions && formData.exclusions.length > 2000) {
       newErrors.exclusions = 'Exclusions text cannot exceed 2000 characters.'
     }
@@ -79,15 +94,29 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
 
     if (!validate()) return
 
+    // Admin confirmation for sensitive status changes
+    if (isAdmin && originalPolicy && formData.status !== originalPolicy.status) {
+      const confirmed = window.confirm(
+        `Confirm Status Change:\nAre you sure you want to change policy status from "${originalPolicy.status}" to "${formData.status}"?`
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+
     setSubmitting(true)
     try {
       const payload = {
         coverageLimit: Number(formData.coverageLimit),
-        deductible: Number(formData.deductible) || 0,
         expiryDate: formData.expiryDate ? new Date(formData.expiryDate).toISOString() : undefined,
         exclusions: formData.exclusions || null,
-        status: formData.status,
       }
+
+      // Only Admins may submit policy status updates
+      if (isAdmin && formData.status) {
+        payload.status = formData.status
+      }
+
       const updated = await updatePolicy(policyId, payload)
       setSuccess(true)
       if (onUpdated) onUpdated(updated)
@@ -109,6 +138,31 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
   const errorFieldStyle = { ...fieldStyle, borderColor: '#dc2626' }
   const labelStyle = { display: 'block', fontWeight: 500, marginBottom: '4px', color: '#374151' }
   const fieldErrorStyle = { color: '#dc2626', fontSize: '0.8rem', marginTop: '4px' }
+
+  // Unauthorized access guard: Policyholder and ClaimsAdjuster cannot edit policies
+  if (!canEdit) {
+    return (
+      <div style={{ maxWidth: '600px', margin: '40px auto', padding: '24px', textAlign: 'center' }}>
+        <h2>Access Denied</h2>
+        <p style={{ color: '#dc2626' }}>You do not have permission to edit policies.</p>
+        <button
+          onClick={onBack}
+          style={{
+            marginTop: '16px',
+            padding: '8px 16px',
+            cursor: 'pointer',
+            backgroundColor: '#3b82f6',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 500,
+          }}
+        >
+          ← Back
+        </button>
+      </div>
+    )
+  }
 
   if (loading) {
     return (
@@ -143,8 +197,9 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
       <form onSubmit={handleSubmit}>
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Coverage Limit</label>
+            <label htmlFor="coverageLimit" style={labelStyle}>Coverage Limit</label>
             <input
+              id="coverageLimit"
               type="number"
               name="coverageLimit"
               value={formData.coverageLimit}
@@ -156,23 +211,27 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
             {errors.coverageLimit && <div style={fieldErrorStyle}>{errors.coverageLimit}</div>}
           </div>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Deductible</label>
+            <label htmlFor="deductible" style={labelStyle}>Deductible</label>
             <input
-              type="number"
+              id="deductible"
+              type="text"
               name="deductible"
-              value={formData.deductible}
-              onChange={handleChange}
-              min="0"
-              step="0.01"
-              style={errors.deductible ? errorFieldStyle : fieldStyle}
+              value={`$${Number(formData.deductible || 0).toLocaleString('en-US')}`}
+              readOnly
+              disabled
+              style={{ ...fieldStyle, backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
             />
+            <div style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '4px' }}>
+              Deductible is fixed according to policy contract terms.
+            </div>
             {errors.deductible && <div style={fieldErrorStyle}>{errors.deductible}</div>}
           </div>
         </div>
 
         <div style={{ marginBottom: '16px' }}>
-          <label style={labelStyle}>Expiry Date</label>
+          <label htmlFor="expiryDate" style={labelStyle}>Expiry Date</label>
           <input
+            id="expiryDate"
             type="date"
             name="expiryDate"
             value={formData.expiryDate}
@@ -181,25 +240,46 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
           />
         </div>
 
-        <div style={{ marginBottom: '16px' }}>
-          <label style={labelStyle}>Status</label>
-          <select
-            name="status"
-            value={formData.status}
-            onChange={handleChange}
-            style={fieldStyle}
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Status: Admin can edit; Underwriter sees read-only */}
+        {isAdmin ? (
+          <div style={{ marginBottom: '16px' }}>
+            <label htmlFor="status" style={labelStyle}>Status</label>
+            <select
+              id="status"
+              name="status"
+              value={formData.status}
+              onChange={handleChange}
+              style={fieldStyle}
+            >
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div style={{ marginBottom: '16px' }}>
+            <label htmlFor="status" style={labelStyle}>Status</label>
+            <input
+              id="status"
+              type="text"
+              name="status"
+              value={formData.status}
+              readOnly
+              disabled
+              style={{ ...fieldStyle, backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
+            />
+            <div style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '4px' }}>
+              Policy status is read-only. Only Administrators can change policy status.
+            </div>
+          </div>
+        )}
 
         <div style={{ marginBottom: '20px' }}>
-          <label style={labelStyle}>Exclusions</label>
+          <label htmlFor="exclusions" style={labelStyle}>Exclusions</label>
           <textarea
+            id="exclusions"
             name="exclusions"
             value={formData.exclusions}
             onChange={handleChange}

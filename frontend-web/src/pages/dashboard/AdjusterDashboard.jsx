@@ -47,6 +47,15 @@ function AdjusterDashboard() {
             <Link to="/payouts/calculate" className="btn btn--secondary">Calculate Payout</Link>
           </div>
         </div>
+
+        <div className="dashboard-card">
+          <div className="dashboard-card-icon">🔔</div>
+          <h3>Notifications</h3>
+          <p>View all system notifications including claim updates, document verifications and payout status changes.</p>
+          <div className="dashboard-card-actions">
+            <Link to="/notifications" className="btn btn--secondary">View Notifications</Link>
+          </div>
+        </div>
       </div>
     </div>
   )

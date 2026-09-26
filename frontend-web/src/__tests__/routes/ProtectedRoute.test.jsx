@@ -174,4 +174,44 @@ describe('ProtectedRoute access control logic', () => {
       requiredRoles: PAYOUT_APPROVAL_ROLES,
     })).toBe('/login')
   })
+
+  // ── Policy Edit Route (/policies/:id/edit, /policies/edit/:id) Protection Tests ──
+
+  const POLICY_EDIT_ROLES = ['Underwriter', 'Admin']
+
+  it('allows Underwriter and Admin to access policy edit routes', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBeNull()
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBeNull()
+  })
+
+  it('redirects ClaimsAdjuster and Policyholder from policy edit routes to /dashboard', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBe('/dashboard')
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBe('/dashboard')
+  })
+
+  it('redirects unauthenticated user from policy edit routes to /login', () => {
+    expect(getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBe('/login')
+  })
 })

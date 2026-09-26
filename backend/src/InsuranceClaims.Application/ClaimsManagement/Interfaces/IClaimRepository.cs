@@ -1,3 +1,4 @@
+using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
 
 namespace InsuranceClaims.Application.ClaimsManagement.Interfaces;
@@ -17,4 +18,6 @@ public interface IClaimRepository
     Task DeleteDocumentAsync(ClaimDocument document);
     Task<bool> ExistsAsync(Guid id);
     Task<string> GenerateClaimNumberAsync();
+    Task<AgentWorkflow?> GetWorkflowAttemptByIdempotencyKeyAsync(Guid claimId, string idempotencyKey);
+    Task<AgentWorkflow> RecordWorkflowAttemptAsync(AgentWorkflow workflow);
 }

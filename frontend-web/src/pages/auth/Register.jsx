@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import Logo from '../../components/common/Logo'
 
 /**
  * Register page — Policyholder registration only.
@@ -54,7 +55,7 @@ function Register() {
     <div className="auth-page">
       <div className="auth-card fade-in">
         <div className="auth-header">
-          <div className="auth-logo">🛡️</div>
+          <div className="auth-logo"><Logo size={52} /></div>
           <h2>Create Account</h2>
           <p className="auth-subtitle">Register as a policyholder to get started</p>
         </div>

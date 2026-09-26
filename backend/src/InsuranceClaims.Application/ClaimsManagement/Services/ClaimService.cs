@@ -1,6 +1,7 @@
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Validators;
+using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Exceptions;
@@ -347,7 +348,7 @@ public class ClaimService : IClaimService
             claim.ClaimedAmount);
     }
 
-    public async Task<DocumentVerificationResultDto> VerifyDocumentsAsync(Guid claimId, Guid requestingUserId, Role userRole)
+    public async Task<DocumentVerificationResultDto> VerifyDocumentsAsync(Guid claimId, Guid requestingUserId, Role userRole, string? idempotencyKey = null)
     {
         var claim = await _claimRepository.GetByIdWithDocumentsAsync(claimId);
         if (claim == null)
@@ -356,6 +357,12 @@ public class ClaimService : IClaimService
         // Staff roles can verify documents for any claim; policyholders only their own
         if (!IsStaffRole(userRole) && claim.PolicyHolderId != requestingUserId)
             throw new UnauthorizedAccessException("You do not have permission to verify documents for this claim.");
+
+        AgentWorkflow? existingAttempt = null;
+        if (!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            existingAttempt = await _claimRepository.GetWorkflowAttemptByIdempotencyKeyAsync(claimId, idempotencyKey);
+        }
 
         var docs = claim.Documents ?? new List<ClaimDocument>();
 
@@ -453,10 +460,34 @@ public class ClaimService : IClaimService
 
         var isComplete = aiResult.Complete && !localEval.HasMismatches && !localEval.HasUnreadable;
 
+        Guid attemptId;
+        if (existingAttempt != null)
+        {
+            attemptId = existingAttempt.Id;
+        }
+        else
+        {
+            var workflowAttempt = new AgentWorkflow
+            {
+                Id = Guid.NewGuid(),
+                ClaimId = claimId,
+                Objective = "DocumentVerification",
+                Status = isComplete ? "Completed" : (mergedInconsistencies.Count > 0 ? "NeedsReview" : "AdditionalDocsRequired"),
+                Plan = !string.IsNullOrWhiteSpace(idempotencyKey) ? $"idempotency:{idempotencyKey}" : null,
+                ExecutionSummary = $"Verified {docs.Count} documents. Complete: {isComplete}",
+                FinalOutcome = isComplete ? "Verified" : "PendingAction",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _claimRepository.RecordWorkflowAttemptAsync(workflowAttempt);
+            attemptId = workflowAttempt.Id;
+        }
+
         return aiResult with
         {
             Complete = isComplete,
-            Inconsistencies = mergedInconsistencies
+            Inconsistencies = mergedInconsistencies,
+            AttemptId = attemptId
         };
     }
 

@@ -1,4 +1,5 @@
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -129,5 +130,21 @@ public class ClaimRepository : IClaimRepository
         var count = await _context.Claims
             .CountAsync(c => c.CreatedAt.Date == DateTime.UtcNow.Date);
         return $"CLM-{date}-{(count + 1):D4}";
+    }
+
+    public async Task<AgentWorkflow?> GetWorkflowAttemptByIdempotencyKeyAsync(Guid claimId, string idempotencyKey)
+    {
+        var planKey = $"idempotency:{idempotencyKey}";
+        return await _context.AgentWorkflows
+            .Where(w => w.ClaimId == claimId && w.Plan == planKey)
+            .OrderByDescending(w => w.CreatedAt)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<AgentWorkflow> RecordWorkflowAttemptAsync(AgentWorkflow workflow)
+    {
+        _context.AgentWorkflows.Add(workflow);
+        await _context.SaveChangesAsync();
+        return workflow;
     }
 }

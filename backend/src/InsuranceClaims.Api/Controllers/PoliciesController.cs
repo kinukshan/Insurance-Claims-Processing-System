@@ -135,17 +135,27 @@ public class PoliciesController : ControllerBase
 
     /// <summary>
     /// PUT /api/policies/{id} — Update an existing policy.
+    /// Only Underwriters and Admins are permitted to update policies.
+    /// Underwriters can edit coverage limit, expiry date, and exclusions.
+    /// Admins can additionally change policy status with validated transitions.
     /// </summary>
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Underwriter,Admin")]
     public async Task<ActionResult<PolicyDto>> Update(Guid id, [FromBody] UpdatePolicyDto dto)
     {
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
+        var userId = GetCurrentUserId();
+        if (userId == Guid.Empty && User.Identity?.IsAuthenticated != true)
+            return Unauthorized();
+
+        var role = GetCurrentUserRole();
+        if (role != Role.Underwriter && role != Role.Admin)
+            return Forbid();
+
         try
         {
-            var userId = GetCurrentUserId();
-            var role = GetCurrentUserRole();
             var updated = await _policyService.UpdateAsync(id, dto, userId, role);
             if (updated == null)
                 return NotFound(new { message = $"Policy with ID '{id}' not found." });
@@ -157,6 +167,10 @@ public class PoliciesController : ControllerBase
             return Forbid();
         }
         catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
         }

@@ -1,8 +1,13 @@
+using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Application.Notifications.Interfaces;
 using InsuranceClaims.Application.RiskAssessment.DTOs;
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
 using InsuranceClaims.Application.RiskAssessment.Validators;
+using InsuranceClaims.Domain.Notifications;
+using InsuranceClaims.Domain.RiskAssessment.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace InsuranceClaims.Api.Controllers;
 
@@ -15,10 +20,23 @@ namespace InsuranceClaims.Api.Controllers;
 public class RiskAssessmentsController : ControllerBase
 {
     private readonly IRiskAssessmentService _riskService;
+    private readonly IClaimRepository? _claimRepository;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
+    private readonly IUserEmailResolver? _userEmailResolver;
+    private readonly ILogger<RiskAssessmentsController> _logger;
 
-    public RiskAssessmentsController(IRiskAssessmentService riskService)
+    public RiskAssessmentsController(
+        IRiskAssessmentService riskService,
+        IClaimRepository? claimRepository = null,
+        INotificationOrchestrator? notificationOrchestrator = null,
+        IUserEmailResolver? userEmailResolver = null,
+        ILogger<RiskAssessmentsController>? logger = null)
     {
         _riskService = riskService;
+        _claimRepository = claimRepository;
+        _notificationOrchestrator = notificationOrchestrator;
+        _userEmailResolver = userEmailResolver;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<RiskAssessmentsController>.Instance;
     }
 
     /// <summary>
@@ -48,6 +66,40 @@ public class RiskAssessmentsController : ControllerBase
         try
         {
             var result = await _riskService.AssessClaimAsync(claimId, request);
+
+            // Await non-authoritative neutral notification if review is indicated
+            if (_notificationOrchestrator != null && _userEmailResolver != null && _claimRepository != null)
+            {
+                try
+                {
+                    if (result.Recommendation == RiskRecommendation.Escalate ||
+                        result.RiskLevel == RiskLevel.High ||
+                        result.RiskScore >= 60m)
+                    {
+                        var claim = await _claimRepository.GetByIdAsync(claimId);
+                        if (claim != null)
+                        {
+                            var email = await _userEmailResolver.GetEmailAsync(claim.PolicyHolderId);
+                            if (!string.IsNullOrWhiteSpace(email))
+                            {
+                                var riskKey = $"claim:{claimId}:risk-needs-review:{result.Id}";
+                                await _notificationOrchestrator.NotifyAsync(
+                                    riskKey,
+                                    claim.PolicyHolderId,
+                                    email,
+                                    claimId,
+                                    NotificationType.RiskAssessmentNeedsReview,
+                                    claim.ClaimNumber);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Non-authoritative risk notification failed for claim {ClaimId}", claimId);
+                }
+            }
+
             return Ok(result);
         }
         catch (KeyNotFoundException ex)
@@ -55,6 +107,8 @@ public class RiskAssessmentsController : ControllerBase
             return NotFound(new { error = ex.Message });
         }
     }
+
+
 
     /// <summary>
     /// Get the latest risk assessment for a specific claim.

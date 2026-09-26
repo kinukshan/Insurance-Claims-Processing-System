@@ -11,6 +11,7 @@ public class EscalateRequest
     public string Reason { get; set; } = string.Empty;
 
     /// <summary>Investigation priority.</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
     public FraudCasePriority Priority { get; set; } = FraudCasePriority.Medium;
 
     /// <summary>Staff member to assign the investigation to.</summary>
