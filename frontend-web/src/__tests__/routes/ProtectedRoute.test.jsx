@@ -48,4 +48,170 @@ describe('ProtectedRoute access control logic', () => {
     })
     expect(dest).toBe('/dashboard')
   })
+
+  // ── Payout Calculation Route (/payouts/calculate) Protection Tests ──
+
+  const PAYOUT_CALCULATE_ROLES = ['ClaimsAdjuster', 'Underwriter', 'Admin']
+
+  it('16. payout calculation route remains protected by staff roles (ClaimsAdjuster, Underwriter, Admin)', () => {
+    // ClaimsAdjuster
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })).toBeNull()
+
+    // Underwriter
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })).toBeNull()
+
+    // Admin
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })).toBeNull()
+  })
+
+  it('17. Policyholder cannot manually access payout calculation route and is redirected to /dashboard', () => {
+    const dest = getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })
+    expect(dest).toBe('/dashboard')
+  })
+
+  it('unauthenticated user attempting to access payout calculation route is redirected to /login', () => {
+    const dest = getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: PAYOUT_CALCULATE_ROLES,
+    })
+    expect(dest).toBe('/login')
+  })
+
+  // ── Main Payouts Route (/payouts) Protection Tests ──
+
+  it('allows Policyholder and staff roles to access main /payouts route without role restrictions', () => {
+    // Policyholder
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: undefined,
+    })).toBeNull()
+
+    // ClaimsAdjuster
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: undefined,
+    })).toBeNull()
+
+    // Underwriter
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: undefined,
+    })).toBeNull()
+
+    // Admin
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: undefined,
+    })).toBeNull()
+  })
+
+  it('redirects unauthenticated user accessing /payouts to /login', () => {
+    const dest = getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: undefined,
+    })
+    expect(dest).toBe('/login')
+  })
+
+  // ── Payout Approval Route (/payouts/approval) Protection Tests ──
+
+  const PAYOUT_APPROVAL_ROLES = ['Underwriter', 'Admin']
+
+  it('allows Underwriter and Admin to access /payouts/approval', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBeNull()
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBeNull()
+  })
+
+  it('redirects ClaimsAdjuster and Policyholder from /payouts/approval to /dashboard', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBe('/dashboard')
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBe('/dashboard')
+  })
+
+  it('redirects unauthenticated user from /payouts/approval to /login', () => {
+    expect(getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: PAYOUT_APPROVAL_ROLES,
+    })).toBe('/login')
+  })
+
+  // ── Policy Edit Route (/policies/:id/edit, /policies/edit/:id) Protection Tests ──
+
+  const POLICY_EDIT_ROLES = ['Underwriter', 'Admin']
+
+  it('allows Underwriter and Admin to access policy edit routes', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Underwriter',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBeNull()
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Admin',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBeNull()
+  })
+
+  it('redirects ClaimsAdjuster and Policyholder from policy edit routes to /dashboard', () => {
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'ClaimsAdjuster',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBe('/dashboard')
+
+    expect(getDestination({
+      isAuthenticated: true,
+      userRole: 'Policyholder',
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBe('/dashboard')
+  })
+
+  it('redirects unauthenticated user from policy edit routes to /login', () => {
+    expect(getDestination({
+      isAuthenticated: false,
+      userRole: null,
+      requiredRoles: POLICY_EDIT_ROLES,
+    })).toBe('/login')
+  })
 })

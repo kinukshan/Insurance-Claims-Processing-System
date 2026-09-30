@@ -33,15 +33,47 @@ public class LocalFileStorageService : IDocumentStorageService
 
     public Task<bool> DeleteAsync(string fileUrl)
     {
-        var fileName = Path.GetFileName(fileUrl);
-        var filePath = Path.Combine(_uploadDirectory, fileName);
-
-        if (File.Exists(filePath))
+        try
         {
-            File.Delete(filePath);
-            return Task.FromResult(true);
-        }
+            if (string.IsNullOrWhiteSpace(fileUrl))
+                return Task.FromResult(false);
 
-        return Task.FromResult(false);
+            // Avoid path traversal by extracting only the file name component
+            var fileName = Path.GetFileName(fileUrl);
+            var filePath = Path.Combine(_uploadDirectory, fileName);
+
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+                return Task.FromResult(true);
+            }
+
+            return Task.FromResult(false);
+        }
+        catch (Exception)
+        {
+            return Task.FromResult(false);
+        }
+    }
+
+    public async Task<byte[]?> GetFileBytesAsync(string fileUrl)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(fileUrl))
+                return null;
+
+            var fileName = Path.GetFileName(fileUrl);
+            var filePath = Path.Combine(_uploadDirectory, fileName);
+
+            if (!File.Exists(filePath))
+                return null;
+
+            return await File.ReadAllBytesAsync(filePath);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 }

@@ -15,4 +15,9 @@ public interface IDocumentStorageService
     /// Deletes a stored file by its URL/reference.
     /// </summary>
     Task<bool> DeleteAsync(string fileUrl);
+
+    /// <summary>
+    /// Reads the raw file bytes for a stored file URL.
+    /// </summary>
+    Task<byte[]?> GetFileBytesAsync(string fileUrl) => Task.FromResult<byte[]?>(null);
 }

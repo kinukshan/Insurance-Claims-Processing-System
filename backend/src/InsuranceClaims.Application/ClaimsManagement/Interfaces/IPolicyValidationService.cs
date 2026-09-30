@@ -20,4 +20,30 @@ public interface IPolicyValidationService
     /// Checks whether a policy exists and is active.
     /// </summary>
     Task<bool> IsPolicyActiveAsync(Guid policyId);
+
+    /// <summary>
+    /// Checks whether a policy belongs to the specified policyholder.
+    /// </summary>
+    Task<bool> ValidatePolicyOwnershipAsync(Guid policyId, Guid policyHolderId);
+
+    /// <summary>
+    /// Retrieves the policyholder ID for a policy, or null if the policy does not exist.
+    /// </summary>
+    Task<Guid?> GetPolicyOwnerIdAsync(Guid policyId);
+
+    /// <summary>
+    /// Retrieves policy validation details including ownership and policy type navigation.
+    /// </summary>
+    Task<PolicyValidationDetailsDto?> GetPolicyDetailsAsync(Guid policyId);
 }
+
+/// <summary>
+/// Essential policy details required for claims validation.
+/// </summary>
+public record PolicyValidationDetailsDto(
+    Guid PolicyId,
+    Guid PolicyholderId,
+    Guid PolicyTypeId,
+    string? PolicyTypeName,
+    bool IsActive
+);

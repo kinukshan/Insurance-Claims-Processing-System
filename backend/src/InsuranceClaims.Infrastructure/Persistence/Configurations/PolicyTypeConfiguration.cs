@@ -37,6 +37,10 @@ public class PolicyTypeConfiguration : IEntityTypeConfiguration<PolicyType>
             .HasPrecision(18, 2)
             .IsRequired();
 
+        builder.Property(pt => pt.DefaultDeductiblePercentage)
+            .HasPrecision(5, 2)
+            .IsRequired(false);
+
         builder.Property(pt => pt.RiskMultiplier)
             .HasPrecision(18, 4)
             .IsRequired();
@@ -44,6 +48,10 @@ public class PolicyTypeConfiguration : IEntityTypeConfiguration<PolicyType>
         builder.Property(pt => pt.IsActive)
             .IsRequired()
             .HasDefaultValue(true);
+
+        builder.Property(pt => pt.InsuranceClass)
+            .IsRequired()
+            .HasDefaultValue(InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass.General);
 
         builder.Property(pt => pt.CreatedAt)
             .IsRequired();

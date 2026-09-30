@@ -8,6 +8,7 @@ namespace InsuranceClaims.Application.RiskAssessment.DTOs;
 public class UpdateFraudCaseRequest
 {
     /// <summary>New investigation status.</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
     public FraudCaseStatus? Status { get; set; }
 
     /// <summary>Updated investigation notes.</summary>
@@ -20,5 +21,6 @@ public class UpdateFraudCaseRequest
     public string? AssignedReviewer { get; set; }
 
     /// <summary>Updated priority.</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
     public FraudCasePriority? Priority { get; set; }
 }

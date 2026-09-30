@@ -26,6 +26,9 @@ public interface IRiskAssessmentRepository
     /// <summary>Get all risk assessments that have unresolved fraud flags.</summary>
     Task<IReadOnlyList<Domain.RiskAssessment.RiskAssessment>> GetFlaggedAsync();
 
+    /// <summary>Get all risk assessments ordered by timestamp descending.</summary>
+    Task<IReadOnlyList<Domain.RiskAssessment.RiskAssessment>> GetAllAsync();
+
     /// <summary>Get fraud case history for a policyholder.</summary>
     Task<IReadOnlyList<FraudCase>> GetFraudCasesByPolicyholderAsync(Guid policyholderId);
 

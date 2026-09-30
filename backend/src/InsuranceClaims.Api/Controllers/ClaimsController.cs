@@ -1,6 +1,11 @@
 using System.Security.Claims;
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Application.Notifications.Interfaces;
+using InsuranceClaims.Application.Notifications.Services;
+using InsuranceClaims.Domain.Notifications;
+using InsuranceClaims.Domain.PolicyManagement.Exceptions;
+using InsuranceClaims.Domain.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,11 +20,22 @@ namespace InsuranceClaims.Api.Controllers;
 public class ClaimsController : ControllerBase
 {
     private readonly IClaimService _claimService;
+    private readonly INotificationOrchestrator _notificationOrchestrator;
+    private readonly IUserEmailResolver _userEmailResolver;
+    private readonly ILogger<ClaimsController> _logger;
 
-    public ClaimsController(IClaimService claimService)
+    public ClaimsController(
+        IClaimService claimService,
+        INotificationOrchestrator notificationOrchestrator,
+        IUserEmailResolver userEmailResolver,
+        ILogger<ClaimsController>? logger = null)
     {
         _claimService = claimService;
+        _notificationOrchestrator = notificationOrchestrator;
+        _userEmailResolver = userEmailResolver;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaimsController>.Instance;
     }
+
 
     /// <summary>
     /// Extracts the current user's ID from JWT claims.
@@ -28,7 +44,8 @@ public class ClaimsController : ControllerBase
     private Guid GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                       ?? User.FindFirst("sub")?.Value;
+                       ?? User.FindFirst("sub")?.Value
+                       ?? User.FindFirst("nameid")?.Value;
 
         if (Guid.TryParse(userIdClaim, out var userId))
             return userId;
@@ -43,6 +60,28 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
+    /// Extracts the current user's role from JWT claims.
+    /// Falls back to X-User-Role header in Development only.
+    /// Defaults to Policyholder if not found or cannot be parsed.
+    /// </summary>
+    private Role GetCurrentUserRole()
+    {
+        var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value
+                     ?? User.FindFirst("role")?.Value;
+
+        if (!string.IsNullOrEmpty(roleClaim) && Enum.TryParse<Role>(roleClaim, ignoreCase: true, out var role))
+            return role;
+
+        // Dev fallback: allow X-User-Role header for testing without auth
+        if (HttpContext.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true &&
+            Request.Headers.TryGetValue("X-User-Role", out var headerValue) &&
+            Enum.TryParse<Role>(headerValue, ignoreCase: true, out var headerRole))
+            return headerRole;
+
+        return Role.Policyholder;
+    }
+
+    /// <summary>
     /// POST /api/claims — Create a new claim (starts as Draft).
     /// </summary>
     [HttpPost]
@@ -51,8 +90,24 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.CreateClaimAsync(userId, dto);
+            if (userId == Guid.Empty)
+                return Unauthorized();
+
+            var role = GetCurrentUserRole();
+            var result = await _claimService.CreateClaimAsync(userId, dto, role);
             return CreatedAtAction(nameof(GetClaim), new { id = result.Id }, result);
+        }
+        catch (PolicyClaimCompatibilityException ex)
+        {
+            return BadRequest(new { errors = new[] { ex.Message } });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (ArgumentException ex)
         {
@@ -69,8 +124,29 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.GetClaimAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var result = await _claimService.GetClaimAsync(id, userId, role);
             if (result == null) return NotFound();
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+    }
+
+    /// <summary>
+    /// GET /api/claims/{id}/document-requirements — Get deterministic required documents and upload status.
+    /// </summary>
+    [HttpGet("{id:guid}/document-requirements")]
+    public async Task<ActionResult<ClaimDocumentRequirementsDto>> GetDocumentRequirements(Guid id)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.GetDocumentRequirementsAsync(id, userId, role);
+            if (result == null) return NotFound(new { message = $"Claim with ID '{id}' was not found." });
             return Ok(result);
         }
         catch (UnauthorizedAccessException)
@@ -91,14 +167,26 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/claims — Get all claims (staff view) with optional filters.
+    /// GET /api/claims — Get all claims (scoped to policyholder if caller is Policyholder, otherwise staff view) with optional filters.
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<List<ClaimSummaryDto>>> GetAllClaims(
         [FromQuery] string? status = null,
         [FromQuery] string? search = null)
     {
-        var results = await _claimService.GetAllClaimsAsync(status, search);
+        var role = GetCurrentUserRole();
+        Guid? policyHolderId = null;
+
+        if (role == Role.Policyholder)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+                return Unauthorized();
+
+            policyHolderId = userId;
+        }
+
+        var results = await _claimService.GetAllClaimsAsync(status, search, policyHolderId);
         return Ok(results);
     }
 
@@ -130,7 +218,7 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/claims/{id} — Withdraw a draft claim (soft delete).
+    /// DELETE /api/claims/{id} — Hard delete a draft claim.
     /// </summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteClaim(Guid id)
@@ -138,17 +226,75 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.DeleteClaimAsync(id, userId);
-            if (!result) return NotFound();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.DeleteClaimAsync(id, userId, role);
+            if (!result) return NotFound(new { message = $"Claim with ID '{id}' not found." });
             return NoContent();
         }
         catch (UnauthorizedAccessException)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to delete this item." });
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { error = ex.Message });
+            return BadRequest(new { error = ex.Message, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to delete the item. Please try again." });
+        }
+    }
+
+    /// <summary>
+    /// POST /api/claims/{id}/withdraw — Withdraw a submitted or under-review claim.
+    /// </summary>
+    [HttpPost("{id:guid}/withdraw")]
+    public async Task<ActionResult<ClaimResponseDto>> WithdrawClaim(Guid id)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.WithdrawClaimAsync(id, userId, role);
+            if (result == null) return NotFound(new { message = $"Claim with ID '{id}' not found." });
+
+            // Await notification safely in active request scope — non-authoritative
+            try
+            {
+                var email = await _userEmailResolver.GetEmailAsync(result.PolicyHolderId);
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    await _notificationOrchestrator.NotifyAsync(
+                        $"claim:{result.Id}:withdrawn",
+                        result.PolicyHolderId,
+                        email,
+                        result.Id,
+                        NotificationType.ClaimWithdrawn,
+                        result.ClaimNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Non-authoritative notification failed for claim withdrawal {ClaimId}", result.Id);
+            }
+
+            return Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { message = $"Claim with ID '{id}' not found." });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to delete this item." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to delete the item. Please try again." });
         }
     }
 
@@ -163,6 +309,28 @@ public class ClaimsController : ControllerBase
             var userId = GetCurrentUserId();
             var result = await _claimService.SubmitClaimAsync(id, userId);
             if (result == null) return NotFound();
+
+            // Await notification safely in active request scope — non-authoritative
+            // Notification failure NEVER fails or rolls back the successful submission
+            try
+            {
+                var email = await _userEmailResolver.GetEmailAsync(result.PolicyHolderId);
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    await _notificationOrchestrator.NotifyAsync(
+                        $"claim:{result.Id}:submitted",
+                        result.PolicyHolderId,
+                        email,
+                        result.Id,
+                        NotificationType.ClaimSubmitted,
+                        result.ClaimNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Non-authoritative notification failed for claim submission {ClaimId}", result.Id);
+            }
+
             return Ok(result);
         }
         catch (UnauthorizedAccessException)
@@ -184,6 +352,7 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
 
             var dto = new UploadDocumentDto(
                 DocumentType: documentType,
@@ -193,7 +362,7 @@ public class ClaimsController : ControllerBase
                 FileStream: file.OpenReadStream()
             );
 
-            var result = await _claimService.AddDocumentAsync(id, userId, dto);
+            var result = await _claimService.AddDocumentAsync(id, userId, role, dto);
             return CreatedAtAction(nameof(GetDocuments), new { id }, result);
         }
         catch (KeyNotFoundException)
@@ -219,7 +388,8 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var results = await _claimService.GetDocumentsAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var results = await _claimService.GetDocumentsAsync(id, userId, role);
             return Ok(results);
         }
         catch (KeyNotFoundException)
@@ -233,6 +403,38 @@ public class ClaimsController : ControllerBase
     }
 
     /// <summary>
+    /// DELETE /api/claims/{claimId}/documents/{documentId} — Delete a document from a claim.
+    /// </summary>
+    [HttpDelete("{claimId:guid}/documents/{documentId:guid}")]
+    public async Task<IActionResult> DeleteDocument(Guid claimId, Guid documentId)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var role = GetCurrentUserRole();
+            var result = await _claimService.DeleteDocumentAsync(claimId, documentId, userId, role);
+            if (!result) return NotFound(new { message = "Document not found." });
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to delete this item." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to delete the item. Please try again." });
+        }
+    }
+
+    /// <summary>
     /// POST /api/claims/{id}/validate-coverage — Validate claim against policy coverage.
     /// </summary>
     [HttpPost("{id:guid}/validate-coverage")]
@@ -241,7 +443,8 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.ValidateCoverageAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var result = await _claimService.ValidateCoverageAsync(id, userId, role);
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -263,7 +466,64 @@ public class ClaimsController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var result = await _claimService.VerifyDocumentsAsync(id, userId);
+            var role = GetCurrentUserRole();
+            var idempotencyKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
+            var result = await _claimService.VerifyDocumentsAsync(id, userId, role, idempotencyKey);
+
+            // Await document notification safely in active request scope — non-authoritative
+            try
+            {
+                var claim = await _claimService.GetClaimAsync(id, userId, role);
+                if (claim != null)
+                {
+                    var email = await _userEmailResolver.GetEmailAsync(claim.PolicyHolderId);
+                    if (!string.IsNullOrWhiteSpace(email))
+                    {
+                        var attemptId = result.AttemptId?.ToString();
+                        if (!result.Complete && result.MissingItems != null && result.MissingItems.Count > 0)
+                        {
+                            var docKey = DocumentNotificationKeys.ForAdditionalDocsRequired(
+                                id, result.MissingItems, claim.Documents, occurrenceId: attemptId);
+                            await _notificationOrchestrator.NotifyAsync(
+                                docKey,
+                                claim.PolicyHolderId,
+                                email,
+                                id,
+                                NotificationType.AdditionalDocumentsRequired,
+                                claim.ClaimNumber);
+                        }
+                        else if (!result.Complete && result.Inconsistencies != null && result.Inconsistencies.Count > 0)
+                        {
+                            var docKey = DocumentNotificationKeys.ForDocumentsNeedReview(
+                                id, result.Inconsistencies, claim.Documents, occurrenceId: attemptId);
+                            await _notificationOrchestrator.NotifyAsync(
+                                docKey,
+                                claim.PolicyHolderId,
+                                email,
+                                id,
+                                NotificationType.DocumentsNeedReview,
+                                claim.ClaimNumber);
+                        }
+                        else if (result.Complete)
+                        {
+                            var docKey = DocumentNotificationKeys.ForDocumentsVerified(
+                                id, claim.Documents, occurrenceId: attemptId);
+                            await _notificationOrchestrator.NotifyAsync(
+                                docKey,
+                                claim.PolicyHolderId,
+                                email,
+                                id,
+                                NotificationType.DocumentsVerified,
+                                claim.ClaimNumber);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Non-authoritative document notification failed for claim {ClaimId}", id);
+            }
+
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -276,4 +536,3 @@ public class ClaimsController : ControllerBase
         }
     }
 }
-

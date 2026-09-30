@@ -1,4 +1,5 @@
 using InsuranceClaims.Application.PayoutProcessing.DTOs;
+using InsuranceClaims.Domain.Users;
 
 namespace InsuranceClaims.Application.PayoutProcessing.Interfaces;
 
@@ -13,9 +14,10 @@ public interface IPayoutService
     /// </summary>
     Task<PayoutDto> CalculatePayoutAsync(Guid claimId);
 
-    Task<PayoutDto?> GetByIdAsync(Guid id);
-    Task<PayoutDto?> GetByClaimIdAsync(Guid claimId);
+    Task<PayoutDto?> GetByIdAsync(Guid id, Guid? userId = null, Role? role = null);
+    Task<PayoutDto?> GetByClaimIdAsync(Guid claimId, Guid? userId = null, Role? role = null);
     Task<PaginatedResult<PayoutDto>> GetHistoryAsync(PayoutHistoryQueryDto query);
+    Task<PaginatedResult<PayoutDto>> GetMyPayoutsAsync(Guid policyholderId, PayoutHistoryQueryDto query);
 
     /// <summary>
     /// Update a draft payout proposal.

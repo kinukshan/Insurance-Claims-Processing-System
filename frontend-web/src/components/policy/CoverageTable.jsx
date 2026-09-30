@@ -1,4 +1,5 @@
 import React from 'react'
+import { formatCurrency } from '../../utils/policyClaimMapping'
 
 /**
  * Coverage details table component.
@@ -25,8 +26,8 @@ function CoverageTable({ coverages }) {
           <tr key={cov.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
             <td style={{ padding: '8px 12px', fontWeight: 500 }}>{cov.coverageType}</td>
             <td style={{ padding: '8px 12px', color: '#6b7280' }}>{cov.description || '—'}</td>
-            <td style={{ padding: '8px 12px', textAlign: 'right' }}>${Number(cov.coverageLimit).toLocaleString()}</td>
-            <td style={{ padding: '8px 12px', textAlign: 'right' }}>${Number(cov.deductibleAmount).toLocaleString()}</td>
+            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{formatCurrency(cov.coverageLimit)}</td>
+            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{formatCurrency(cov.deductibleAmount)}</td>
             <td style={{ padding: '8px 12px', textAlign: 'right' }}>{cov.percentageOfCoverage}%</td>
             <td style={{ padding: '8px 12px', textAlign: 'center' }}>{cov.isActive ? '✓' : '✗'}</td>
           </tr>

@@ -1,4 +1,5 @@
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -37,9 +38,14 @@ public class ClaimRepository : IClaimRepository
             .ToListAsync();
     }
 
-    public async Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null)
+    public async Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null, Guid? policyHolderId = null)
     {
         var query = _context.Claims.AsQueryable();
+
+        if (policyHolderId.HasValue)
+        {
+            query = query.Where(c => c.PolicyHolderId == policyHolderId.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(statusFilter) &&
             Enum.TryParse<ClaimStatus>(statusFilter, true, out var status))
@@ -70,7 +76,33 @@ public class ClaimRepository : IClaimRepository
 
     public async Task<Claim> UpdateAsync(Claim claim)
     {
-        _context.Claims.Update(claim);
+        var entry = _context.Entry(claim);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.Claims.Attach(claim);
+            entry.State = EntityState.Modified;
+        }
+
+        if (claim.Documents != null)
+        {
+            foreach (var doc in claim.Documents)
+            {
+                var docEntry = _context.Entry(doc);
+                if (docEntry.State == EntityState.Detached)
+                {
+                    _context.ClaimDocuments.Add(doc);
+                }
+                else if (docEntry.State == EntityState.Modified)
+                {
+                    var exists = await _context.ClaimDocuments.AnyAsync(d => d.Id == doc.Id);
+                    if (!exists)
+                    {
+                        docEntry.State = EntityState.Added;
+                    }
+                }
+            }
+        }
+
         await _context.SaveChangesAsync();
         return claim;
     }
@@ -78,6 +110,12 @@ public class ClaimRepository : IClaimRepository
     public async Task DeleteAsync(Claim claim)
     {
         _context.Claims.Remove(claim);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task DeleteDocumentAsync(ClaimDocument document)
+    {
+        _context.ClaimDocuments.Remove(document);
         await _context.SaveChangesAsync();
     }
 
@@ -92,5 +130,21 @@ public class ClaimRepository : IClaimRepository
         var count = await _context.Claims
             .CountAsync(c => c.CreatedAt.Date == DateTime.UtcNow.Date);
         return $"CLM-{date}-{(count + 1):D4}";
+    }
+
+    public async Task<AgentWorkflow?> GetWorkflowAttemptByIdempotencyKeyAsync(Guid claimId, string idempotencyKey)
+    {
+        var planKey = $"idempotency:{idempotencyKey}";
+        return await _context.AgentWorkflows
+            .Where(w => w.ClaimId == claimId && w.Plan == planKey)
+            .OrderByDescending(w => w.CreatedAt)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<AgentWorkflow> RecordWorkflowAttemptAsync(AgentWorkflow workflow)
+    {
+        _context.AgentWorkflows.Add(workflow);
+        await _context.SaveChangesAsync();
+        return workflow;
     }
 }

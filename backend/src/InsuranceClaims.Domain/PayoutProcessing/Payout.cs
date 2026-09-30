@@ -18,6 +18,7 @@ public class Payout : BaseEntity
     public decimal ApprovedClaimAmount { get; set; }
     public decimal CoverageLimit { get; set; }
     public decimal Deductible { get; set; }
+    public decimal? DeductiblePercentage { get; set; }
 
     // ── Calculated outputs ───────────────────────────────────────────
     public decimal ProposedPayout { get; set; }
@@ -44,17 +45,32 @@ public class Payout : BaseEntity
     /// <summary>Approval audit trail.</summary>
     public virtual ICollection<PayoutApproval> Approvals { get; set; } = new List<PayoutApproval>();
 
+    /// <summary>Payment transaction history from external providers.</summary>
+    public virtual ICollection<PaymentTransaction> PaymentTransactions { get; set; } = new List<PaymentTransaction>();
+
     // ── Domain Methods ───────────────────────────────────────────────
 
     /// <summary>
     /// Deterministic payout calculation.
     /// EligibleAmount = min(ApprovedClaimAmount, CoverageLimit)
-    /// FinalPayout    = max(0, EligibleAmount - Deductible)
+    /// If DeductiblePercentage has value:
+    ///   DeductibleAmount = round(EligibleAmount * DeductiblePercentage / 100, 2)
+    ///   FinalPayout      = max(0, EligibleAmount - DeductibleAmount)
+    /// Else (historical fixed):
+    ///   FinalPayout      = max(0, EligibleAmount - Deductible)
     /// </summary>
     public void CalculatePayout()
     {
         var eligible = Math.Min(ApprovedClaimAmount, CoverageLimit);
-        ProposedPayout = Math.Max(0m, eligible - Deductible);
+        if (DeductiblePercentage.HasValue)
+        {
+            Deductible = Math.Round(eligible * DeductiblePercentage.Value / 100m, 2, MidpointRounding.AwayFromZero);
+            ProposedPayout = Math.Max(0m, eligible - Deductible);
+        }
+        else
+        {
+            ProposedPayout = Math.Max(0m, eligible - Deductible);
+        }
         FinalPayout = ProposedPayout; // May diverge after approval adjustments
     }
 
@@ -81,6 +97,92 @@ public class Payout : BaseEntity
     }
 
     /// <summary>
+    /// Approves the payout and creates the corresponding audit approval record.
+    /// </summary>
+    public PayoutApproval Approve(Guid reviewerId, string reviewerName, string comments)
+    {
+        if (!IsValidTransition(Status, PayoutStatus.Approved))
+        {
+            throw new InvalidOperationException(
+                $"Cannot approve payout from status '{Status}'. Must be PendingApproval.");
+        }
+
+        Status = PayoutStatus.Approved;
+        ApprovedBy = reviewerName;
+        ApprovalTimestamp = DateTime.UtcNow;
+
+        var approval = new PayoutApproval
+        {
+            Id = Guid.NewGuid(),
+            PayoutId = Id,
+            ReviewerId = reviewerId,
+            ReviewerName = reviewerName,
+            Decision = ApprovalDecisionType.Approved,
+            Comments = comments,
+            DecisionTimestamp = DateTime.UtcNow
+        };
+
+        Approvals.Add(approval);
+        return approval;
+    }
+
+    /// <summary>
+    /// Rejects the payout and creates the corresponding audit approval record.
+    /// </summary>
+    public PayoutApproval Reject(Guid reviewerId, string reviewerName, string comments)
+    {
+        if (!IsValidTransition(Status, PayoutStatus.Rejected))
+        {
+            throw new InvalidOperationException(
+                $"Cannot reject payout from status '{Status}'. Must be PendingApproval.");
+        }
+
+        Status = PayoutStatus.Rejected;
+
+        var approval = new PayoutApproval
+        {
+            Id = Guid.NewGuid(),
+            PayoutId = Id,
+            ReviewerId = reviewerId,
+            ReviewerName = reviewerName,
+            Decision = ApprovalDecisionType.Rejected,
+            Comments = comments,
+            DecisionTimestamp = DateTime.UtcNow
+        };
+
+        Approvals.Add(approval);
+        return approval;
+    }
+
+    /// <summary>
+    /// Requests revision on the payout and creates the corresponding audit approval record.
+    /// </summary>
+    public PayoutApproval RequestRevision(Guid reviewerId, string reviewerName, string comments)
+    {
+        if (!IsValidTransition(Status, PayoutStatus.RevisionRequested))
+        {
+            throw new InvalidOperationException(
+                $"Cannot request revision from status '{Status}'. Must be PendingApproval.");
+        }
+
+        Status = PayoutStatus.RevisionRequested;
+
+        var approval = new PayoutApproval
+        {
+            Id = Guid.NewGuid(),
+            PayoutId = Id,
+            ReviewerId = reviewerId,
+            ReviewerName = reviewerName,
+            Decision = ApprovalDecisionType.RevisionRequested,
+            Comments = comments,
+            DecisionTimestamp = DateTime.UtcNow
+        };
+
+        Approvals.Add(approval);
+        return approval;
+    }
+
+    /// <summary>
     /// Validates whether a transition from the current status to the target status is legal.
     /// </summary>
     public static bool IsValidTransition(PayoutStatus from, PayoutStatus to)
@@ -97,5 +199,7 @@ public class Payout : BaseEntity
             (PayoutStatus.Processing, PayoutStatus.Failed) => true,
             _ => false
         };
+
+
     }
 }

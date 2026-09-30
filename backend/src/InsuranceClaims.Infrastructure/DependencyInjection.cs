@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Security.Claims;
 using InsuranceClaims.Infrastructure.Persistence;
 using InsuranceClaims.Infrastructure.Authentication;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
@@ -19,6 +20,9 @@ using InsuranceClaims.Infrastructure.AgentIntegration;
 using InsuranceClaims.Application.PayoutProcessing.Interfaces;
 using InsuranceClaims.Application.PayoutProcessing.Services;
 using InsuranceClaims.Application.Authentication;
+using InsuranceClaims.Application.Notifications.Interfaces;
+using InsuranceClaims.Application.Notifications.Services;
+using InsuranceClaims.Infrastructure.ExternalServices.Email;
 
 namespace InsuranceClaims.Infrastructure;
 
@@ -31,6 +35,8 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddSingleton(configuration);
+
         // Database
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseNpgsql(
@@ -62,7 +68,9 @@ public static class DependencyInjection
                     ValidAudience = configuration["Jwt:Audience"] ?? "InsuranceClaims.React",
                     IssuerSigningKey = new SymmetricSecurityKey(
                         Encoding.UTF8.GetBytes(jwtKey)),
-                    ClockSkew = TimeSpan.FromMinutes(1)
+                    ClockSkew = TimeSpan.FromMinutes(1),
+                    RoleClaimType = ClaimTypes.Role,
+                    NameClaimType = ClaimTypes.Name
                 };
             });
         }
@@ -106,11 +114,93 @@ public static class DependencyInjection
         // ── Payout Processing ────────────────────────────────────────
         services.AddScoped<IPayoutRepository, PayoutRepository>();
         services.AddScoped<IPayoutService, PayoutService>();
-        services.AddScoped<IPayoutContextProvider, StubPayoutContextProvider>();
-        services.AddScoped<IPaymentGateway, SandboxPaymentGateway>();
+        services.AddScoped<IPayoutContextProvider, EfPayoutContextProvider>();
+        services.AddScoped<IPaymentTransactionRepository, PaymentTransactionRepository>();
+
+        // Payment gateway: Provider selected via configuration ("Mock" or "PayPalSandbox")
+        var paymentProvider = configuration["PaymentGateway:Provider"]
+            ?? configuration["PAYMENT_GATEWAY_PROVIDER"]
+            ?? "Mock";
+
+        if (string.Equals(paymentProvider, "Mock", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<Application.PayoutProcessing.Interfaces.IPaymentGateway, MockPaymentGateway>();
+        }
+        else if (string.Equals(paymentProvider, "PayPalSandbox", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(paymentProvider, "PayPal", StringComparison.OrdinalIgnoreCase))
+        {
+            var paypalMode = configuration["PaymentGateway:PayPal:Mode"]
+                ?? configuration["PAYPAL_MODE"]
+                ?? "Sandbox";
+
+            if (string.Equals(paypalMode, "Live", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Live PayPal mode is strictly prohibited. Only Sandbox is allowed.");
+            }
+
+            var paypalBaseUrl = configuration["PaymentGateway:PayPal:BaseUrl"]
+                ?? configuration["PAYPAL_BASE_URL"]
+                ?? "https://api-m.sandbox.paypal.com";
+
+            services.AddHttpClient<IPayPalAuthService, PayPalAuthService>(client =>
+            {
+                client.BaseAddress = new Uri(paypalBaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+
+            services.AddHttpClient<Application.PayoutProcessing.Interfaces.IPaymentGateway, PayPalSandboxPaymentGateway>(client =>
+            {
+                client.BaseAddress = new Uri(paypalBaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Unsupported payment gateway provider '{paymentProvider}'. Supported values: 'Mock', 'PayPalSandbox'.");
+        }
 
         // Agent integration: ASP.NET Core → Internal AI Service
         services.AddHttpClient<IPayoutValidationAgentGateway, PayoutValidationAgentGateway>();
+
+        // ── Notifications ────────────────────────────────────────────
+        // Repository
+        services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
+
+        // Email service: Provider selected via configuration (default: "Mock")
+        var emailProvider = configuration["Notification:Email:Provider"]
+            ?? "Mock";
+
+        if (string.Equals(emailProvider, "Mock", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<IEmailService, MockEmailService>();
+        }
+        else if (string.Equals(emailProvider, "Resend", StringComparison.OrdinalIgnoreCase))
+        {
+            var timeoutSeconds = 30;
+            if (int.TryParse(configuration["Notification:Email:Resend:TimeoutSeconds"], out var configuredTimeout)
+                && configuredTimeout > 0)
+            {
+                timeoutSeconds = configuredTimeout;
+            }
+
+            services.AddHttpClient<IEmailService, ResendEmailService>(client =>
+            {
+                client.BaseAddress = new Uri("https://api.resend.com");
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            });
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Unsupported email provider '{emailProvider}'. Supported values: 'Mock', 'Resend'.");
+        }
+
+        // Orchestrator
+        services.AddScoped<INotificationOrchestrator, NotificationOrchestrator>();
+
+        // User email resolver (server-side recipient lookup)
+        services.AddScoped<IUserEmailResolver, UserEmailResolver>();
 
         return services;
     }

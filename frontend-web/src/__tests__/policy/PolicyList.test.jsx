@@ -1,5 +1,22 @@
-// Policy component tests — Component A (Member 1)
 import React from 'react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import PolicyCard from '../../components/policy/PolicyCard'
+import PolicyList from '../../pages/policy/PolicyList'
+import * as policyService from '../../services/policyService'
+
+let mockAuth = { role: null, user: null }
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => mockAuth,
+}))
+
+vi.mock('../../services/policyService', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    getPolicies: vi.fn(),
+  }
+})
 
 // Note: These tests require @testing-library/react and vitest to be installed.
 // They validate the component structure and behavior patterns.
@@ -133,5 +150,161 @@ describe('Policy states', () => {
   it('should represent loaded state correctly', () => {
     const state = { loading: false, error: null, policies: [{ id: '1' }] }
     expect(state.policies).toHaveLength(1)
+  })
+})
+
+// --- PolicyCard Delete Tests ---
+
+describe('PolicyCard Delete functionality', () => {
+  const draftPolicy = {
+    id: 'p-1',
+    policyNumber: 'POL-DRAFT-001',
+    status: 'Draft',
+    policyholderId: 'u-1',
+    policyTypeName: 'Auto',
+    premium: 500,
+    coverageLimit: 10000,
+    startDate: '2026-01-01',
+    expiryDate: '2027-01-01',
+  }
+
+  it('shows Delete Policy button for owner Policyholder on draft policy', () => {
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    render(<PolicyCard policy={draftPolicy} currentUser={user} onDelete={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /delete policy/i })).toBeDefined()
+  })
+
+  it('shows Delete Policy button for Underwriter and Admin on draft policy', () => {
+    const underwriter = { userId: 'u-2', role: 'Underwriter' }
+    const { unmount } = render(<PolicyCard policy={draftPolicy} currentUser={underwriter} onDelete={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /delete policy/i })).toBeDefined()
+    unmount()
+
+    const admin = { userId: 'u-3', role: 'Admin' }
+    render(<PolicyCard policy={draftPolicy} currentUser={admin} onDelete={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /delete policy/i })).toBeDefined()
+  })
+
+  it('hides Delete Policy button for ClaimsAdjuster', () => {
+    const adjuster = { userId: 'u-4', role: 'ClaimsAdjuster' }
+    render(<PolicyCard policy={draftPolicy} currentUser={adjuster} onDelete={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /delete policy/i })).toBeNull()
+  })
+
+  it('hides Delete Policy button for non-owner Policyholder', () => {
+    const nonOwner = { userId: 'u-999', role: 'Policyholder' }
+    render(<PolicyCard policy={draftPolicy} currentUser={nonOwner} onDelete={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /delete policy/i })).toBeNull()
+  })
+
+  it('hides Delete Policy button for non-draft policies', () => {
+    const activePolicy = { ...draftPolicy, status: 'Active' }
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    render(<PolicyCard policy={activePolicy} currentUser={user} onDelete={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /delete policy/i })).toBeNull()
+  })
+
+  it('confirms and calls onDelete when Delete Policy is clicked and confirmed', () => {
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    const onDelete = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<PolicyCard policy={draftPolicy} currentUser={user} onDelete={onDelete} />)
+    fireEvent.click(screen.getByRole('button', { name: /delete policy/i }))
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Delete Policy?'))
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining(draftPolicy.policyNumber))
+    expect(onDelete).toHaveBeenCalledWith(draftPolicy)
+    confirmSpy.mockRestore()
+  })
+
+  it('does not call onDelete when confirmation is rejected', () => {
+    const user = { userId: 'u-1', role: 'Policyholder' }
+    const onDelete = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    render(<PolicyCard policy={draftPolicy} currentUser={user} onDelete={onDelete} />)
+    fireEvent.click(screen.getByRole('button', { name: /delete policy/i }))
+
+    expect(onDelete).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+})
+
+describe('PolicyList Scoping and Role Headers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAuth = { role: null, user: null }
+  })
+
+  it('renders My Policies heading and scoped count for Policyholder', async () => {
+    mockAuth = { role: 'Policyholder', user: { userId: 'u-1', role: 'Policyholder' } }
+    policyService.getPolicies.mockResolvedValueOnce([
+      { id: 'pol-1', policyNumber: 'POL-001', status: 'Active', policyholderId: 'u-1', policyTypeName: 'Auto', premium: 500 }
+    ])
+
+    render(<PolicyList />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'My Policies' })).toBeDefined()
+      expect(screen.getByText('Showing 1 of 1 policies')).toBeDefined()
+    })
+  })
+
+  it('renders Policies heading for Staff roles', async () => {
+    mockAuth = { role: 'ClaimsAdjuster', user: { userId: 'u-adj', role: 'ClaimsAdjuster' } }
+    policyService.getPolicies.mockResolvedValueOnce([
+      { id: 'pol-1', policyNumber: 'POL-001', status: 'Active', policyholderId: 'u-1', policyTypeName: 'Auto', premium: 500 },
+      { id: 'pol-2', policyNumber: 'POL-002', status: 'Active', policyholderId: 'u-2', policyTypeName: 'Home', premium: 800 }
+    ])
+
+    render(<PolicyList />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Policies' })).toBeDefined()
+      expect(screen.getByText('Showing 2 of 2 policies')).toBeDefined()
+    })
+  })
+})
+
+describe('PolicyCard Currency Presentation', () => {
+  it('formats premium and coverage correctly in LKR with 2 decimals without dollar symbols', () => {
+    const policy = {
+      id: 'pol-100',
+      policyNumber: 'POL-TEST-100',
+      status: 'Active',
+      policyTypeName: 'Motor Insurance',
+      premium: 275000,
+      coverageLimit: 100000,
+      startDate: '2026-01-01',
+      expiryDate: '2027-01-01',
+    }
+
+    const { container } = render(<PolicyCard policy={policy} />)
+
+    expect(screen.getByText('Premium: LKR 275,000.00')).toBeDefined()
+    expect(screen.getByText('Coverage: LKR 100,000.00')).toBeDefined()
+    expect(container.textContent).not.toMatch(/LKR\s*\$/)
+    expect(container.textContent).not.toMatch(/\$\d/)
+  })
+
+  it('safely handles and strips any legacy pre-formatted dollar values to prevent double symbols', () => {
+    const policyWithLegacyStrings = {
+      id: 'pol-200',
+      policyNumber: 'POL-TEST-200',
+      status: 'Active',
+      policyTypeName: 'Home Insurance',
+      premium: '$275,000',
+      coverageLimit: '$100,000',
+      startDate: '2026-01-01',
+      expiryDate: '2027-01-01',
+    }
+
+    const { container } = render(<PolicyCard policy={policyWithLegacyStrings} />)
+
+    expect(screen.getByText('Premium: LKR 275,000.00')).toBeDefined()
+    expect(screen.getByText('Coverage: LKR 100,000.00')).toBeDefined()
+    expect(container.textContent).not.toMatch(/LKR\s*\$/)
+    expect(container.textContent).not.toMatch(/\$\d/)
   })
 })

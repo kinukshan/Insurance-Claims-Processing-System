@@ -14,6 +14,9 @@ public class UpdatePolicyDto
     [Range(0, double.MaxValue, ErrorMessage = "Deductible cannot be negative.")]
     public decimal? Deductible { get; set; }
 
+    [Range(0, 100, ErrorMessage = "Deductible percentage must be between 0 and 100.")]
+    public decimal? DeductiblePercentage { get; set; }
+
     public DateTime? ExpiryDate { get; set; }
 
     public string? Exclusions { get; set; }

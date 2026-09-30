@@ -1,49 +1,48 @@
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Services;
+using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
+using InsuranceClaims.Domain.Users;
+using Xunit;
 
 namespace InsuranceClaims.UnitTests.ClaimsManagement;
 
-/// <summary>
-/// Unit tests for ClaimService — validates CRUD, ownership,
-/// status transitions, and business operations.
-/// </summary>
 public class ClaimServiceTests
 {
-    private readonly ClaimService _service;
-    private readonly IClaimRepository _repository;
-    private readonly IDocumentStorageService _storage;
-    private readonly IPolicyValidationService _policyValidation;
-    private readonly IDocumentVerificationClient _verificationClient;
+    internal static readonly Guid UserId = Guid.NewGuid();
+    internal static readonly Guid OtherUserId = Guid.NewGuid();
+    internal static readonly Guid PolicyId = Guid.NewGuid();
 
-    // Test user IDs
-    private static readonly Guid UserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    private static readonly Guid OtherUserId = Guid.Parse("22222222-2222-2222-2222-222222222222");
-    private static readonly Guid PolicyId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    private readonly FakeClaimRepository _claimRepository;
+    private readonly FakeDocumentStorageService _storageService;
+    private readonly FakePolicyValidationService _policyValidation;
+    private readonly FakeDocumentVerificationClient _verificationClient;
+    private readonly ClaimService _service;
 
     public ClaimServiceTests()
     {
-        _repository = new FakeClaimRepository();
-        _storage = new FakeDocumentStorageService();
+        _claimRepository = new FakeClaimRepository();
+        _storageService = new FakeDocumentStorageService();
         _policyValidation = new FakePolicyValidationService();
         _verificationClient = new FakeDocumentVerificationClient();
-        _service = new ClaimService(_repository, _storage, _policyValidation, _verificationClient);
+        _service = new ClaimService(_claimRepository, _storageService, _policyValidation, _verificationClient);
     }
 
     // ── CREATE ──
 
     [Fact]
-    public async Task CreateClaim_WithValidData_ReturnsClaim()
+    public async Task CreateClaim_ValidDto_ReturnsCreatedClaimWithDraftStatus()
     {
         var dto = MakeCreateDto();
         var result = await _service.CreateClaimAsync(UserId, dto);
 
         Assert.NotNull(result);
-        Assert.Equal("Auto", result.ClaimType);
         Assert.Equal("Draft", result.Status);
+        Assert.Equal(dto.ClaimType.ToString(), result.ClaimType);
+        Assert.Equal(dto.ClaimedAmount, result.ClaimedAmount);
         Assert.Equal(UserId, result.PolicyHolderId);
-        Assert.True(result.ClaimedAmount > 0);
+        Assert.StartsWith("CLM-", result.ClaimNumber);
     }
 
     [Fact]
@@ -65,7 +64,7 @@ public class ClaimServiceTests
     [Fact]
     public async Task CreateClaim_WithFutureDate_Throws()
     {
-        var dto = MakeCreateDto() with { IncidentDate = DateTime.UtcNow.AddDays(5) };
+        var dto = MakeCreateDto() with { IncidentDate = DateTime.UtcNow.AddDays(1) };
         await Assert.ThrowsAsync<ArgumentException>(() =>
             _service.CreateClaimAsync(UserId, dto));
     }
@@ -78,30 +77,61 @@ public class ClaimServiceTests
             _service.CreateClaimAsync(UserId, dto));
     }
 
-    // ── READ (Ownership) ──
+    // ── READ ──
 
     [Fact]
-    public async Task GetClaim_AsOwner_ReturnsClaim()
+    public async Task GetClaim_AsOwner_ReturnsClaimWithDocuments()
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
-        var result = await _service.GetClaimAsync(created.Id, UserId);
+        var result = await _service.GetClaimAsync(created.Id, UserId, Role.Policyholder);
+
+        Assert.NotNull(result);
+        Assert.Equal(created.Id, result!.Id);
+        Assert.Equal(created.ClaimNumber, result.ClaimNumber);
+    }
+
+    [Fact]
+    public async Task GetClaim_AsOtherPolicyholder_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.GetClaimAsync(created.Id, OtherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task GetClaim_AsClaimsAdjuster_CanAccessOtherUserClaim()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var result = await _service.GetClaimAsync(created.Id, OtherUserId, Role.ClaimsAdjuster);
 
         Assert.NotNull(result);
         Assert.Equal(created.Id, result!.Id);
     }
 
     [Fact]
-    public async Task GetClaim_AsNonOwner_ThrowsUnauthorized()
+    public async Task GetClaim_AsUnderwriter_CanAccessOtherUserClaim()
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            _service.GetClaimAsync(created.Id, OtherUserId));
+        var result = await _service.GetClaimAsync(created.Id, OtherUserId, Role.Underwriter);
+
+        Assert.NotNull(result);
+        Assert.Equal(created.Id, result!.Id);
+    }
+
+    [Fact]
+    public async Task GetClaim_AsAdmin_CanAccessOtherUserClaim()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var result = await _service.GetClaimAsync(created.Id, OtherUserId, Role.Admin);
+
+        Assert.NotNull(result);
+        Assert.Equal(created.Id, result!.Id);
     }
 
     [Fact]
     public async Task GetClaim_NonExistent_ReturnsNull()
     {
-        var result = await _service.GetClaimAsync(Guid.NewGuid(), UserId);
+        var result = await _service.GetClaimAsync(Guid.NewGuid(), UserId, Role.Policyholder);
         Assert.Null(result);
     }
 
@@ -114,6 +144,16 @@ public class ClaimServiceTests
 
         var myClaims = await _service.GetMyClaimsAsync(UserId);
         Assert.Equal(2, myClaims.Count);
+    }
+
+    [Fact]
+    public async Task GetAllClaims_ReturnsAllClaims()
+    {
+        await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await _service.CreateClaimAsync(OtherUserId, MakeCreateDto());
+
+        var allClaims = await _service.GetAllClaimsAsync();
+        Assert.True(allClaims.Count >= 2);
     }
 
     // ── UPDATE ──
@@ -151,19 +191,19 @@ public class ClaimServiceTests
             _service.UpdateClaimAsync(created.Id, OtherUserId, updateDto));
     }
 
-    // ── DELETE (Withdraw) ──
+    // ── DELETE & WITHDRAW ──
 
     [Fact]
-    public async Task DeleteClaim_DraftClaim_SetsWithdrawn()
+    public async Task DeleteClaim_OwnerDraftClaim_HardDeletesClaim()
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
-        var result = await _service.DeleteClaimAsync(created.Id, UserId);
+        var result = await _service.DeleteClaimAsync(created.Id, UserId, Role.Policyholder);
 
         Assert.True(result);
 
-        // Verify the status is Withdrawn, not hard-deleted
-        var claim = await _service.GetClaimAsync(created.Id, UserId);
-        Assert.Equal("Withdrawn", claim!.Status);
+        // Verify the claim is hard-deleted
+        var claim = await _service.GetClaimAsync(created.Id, UserId, Role.Policyholder);
+        Assert.Null(claim);
     }
 
     [Fact]
@@ -173,7 +213,7 @@ public class ClaimServiceTests
         await _service.SubmitClaimAsync(created.Id, UserId);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _service.DeleteClaimAsync(created.Id, UserId));
+            _service.DeleteClaimAsync(created.Id, UserId, Role.Policyholder));
     }
 
     [Fact]
@@ -181,7 +221,103 @@ public class ClaimServiceTests
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            _service.DeleteClaimAsync(created.Id, OtherUserId));
+            _service.DeleteClaimAsync(created.Id, OtherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task DeleteClaim_AsClaimsAdjuster_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.DeleteClaimAsync(created.Id, UserId, Role.ClaimsAdjuster));
+    }
+
+    [Fact]
+    public async Task DeleteClaim_AsUnderwriter_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.DeleteClaimAsync(created.Id, UserId, Role.Underwriter));
+    }
+
+    [Fact]
+    public async Task DeleteClaim_AsAdmin_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.DeleteClaimAsync(created.Id, UserId, Role.Admin));
+    }
+
+    [Fact]
+    public async Task DeleteClaim_FinalizedClaim_Throws()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var domainClaim = await _claimRepository.GetByIdAsync(created.Id);
+        domainClaim!.Status = ClaimStatus.Closed;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.DeleteClaimAsync(created.Id, UserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task WithdrawClaim_SubmittedClaim_SetsWithdrawn()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await _service.SubmitClaimAsync(created.Id, UserId);
+
+        var result = await _service.WithdrawClaimAsync(created.Id, UserId, Role.Policyholder);
+
+        Assert.NotNull(result);
+        Assert.Equal("Withdrawn", result!.Status);
+    }
+
+    [Fact]
+    public async Task WithdrawClaim_UnderReviewClaim_SetsWithdrawn()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await _service.SubmitClaimAsync(created.Id, UserId);
+        var domainClaim = await _claimRepository.GetByIdAsync(created.Id);
+        domainClaim!.Status = ClaimStatus.UnderReview;
+
+        var result = await _service.WithdrawClaimAsync(created.Id, UserId, Role.Policyholder);
+
+        Assert.NotNull(result);
+        Assert.Equal("Withdrawn", result!.Status);
+    }
+
+    [Theory]
+    [InlineData(Role.ClaimsAdjuster)]
+    [InlineData(Role.Underwriter)]
+    [InlineData(Role.Admin)]
+    public async Task WithdrawClaim_AsStaff_ThrowsUnauthorized(Role staffRole)
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await _service.SubmitClaimAsync(created.Id, UserId);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.WithdrawClaimAsync(created.Id, UserId, staffRole));
+    }
+
+    [Fact]
+    public async Task WithdrawClaim_AsNonOwner_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await _service.SubmitClaimAsync(created.Id, UserId);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.WithdrawClaimAsync(created.Id, OtherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task WithdrawClaim_FinalizedClaim_Throws()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await _service.SubmitClaimAsync(created.Id, UserId);
+        var domainClaim = await _claimRepository.GetByIdAsync(created.Id);
+        domainClaim!.Status = ClaimStatus.Approved;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.WithdrawClaimAsync(created.Id, UserId, Role.Policyholder));
     }
 
     // ── STATUS TRANSITIONS ──
@@ -207,13 +343,201 @@ public class ClaimServiceTests
             _service.SubmitClaimAsync(created.Id, UserId));
     }
 
+    // ── DOCUMENTS ──
+
+    [Fact]
+    public async Task AddDocument_AsOwner_Succeeds()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var dto = new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream);
+
+        var doc = await _service.AddDocumentAsync(created.Id, UserId, Role.Policyholder, dto);
+
+        Assert.NotNull(doc);
+        Assert.Equal("Police Report", doc.DocumentType);
+        Assert.Equal("report.pdf", doc.FileName);
+    }
+
+    [Fact]
+    public async Task AddDocument_AsOtherPolicyholder_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var dto = new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.AddDocumentAsync(created.Id, OtherUserId, Role.Policyholder, dto));
+    }
+
+    [Fact]
+    public async Task AddDocument_AsClaimsAdjuster_Succeeds()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var dto = new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream);
+
+        var doc = await _service.AddDocumentAsync(created.Id, OtherUserId, Role.ClaimsAdjuster, dto);
+
+        Assert.NotNull(doc);
+        Assert.Equal("Police Report", doc.DocumentType);
+    }
+
+    [Fact]
+    public async Task GetDocuments_AsOwner_Succeeds()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var docs = await _service.GetDocumentsAsync(created.Id, UserId, Role.Policyholder);
+        Assert.NotNull(docs);
+    }
+
+    [Fact]
+    public async Task GetDocuments_AsOtherPolicyholder_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.GetDocumentsAsync(created.Id, OtherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task GetDocuments_AsClaimsAdjuster_Succeeds()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var docs = await _service.GetDocumentsAsync(created.Id, OtherUserId, Role.ClaimsAdjuster);
+        Assert.NotNull(docs);
+    }
+
+    // ── DOCUMENT DELETE ──
+
+    [Fact]
+    public async Task DeleteDocument_AsOwner_Succeeds()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var doc = await _service.AddDocumentAsync(created.Id, UserId, Role.Policyholder,
+            new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream));
+
+        var result = await _service.DeleteDocumentAsync(created.Id, doc.Id, UserId, Role.Policyholder);
+        Assert.True(result);
+
+        var docs = await _service.GetDocumentsAsync(created.Id, UserId, Role.Policyholder);
+        Assert.DoesNotContain(docs, d => d.Id == doc.Id);
+    }
+
+    [Theory]
+    [InlineData(Role.ClaimsAdjuster)]
+    [InlineData(Role.Underwriter)]
+    [InlineData(Role.Admin)]
+    public async Task DeleteDocument_AsStaff_Succeeds(Role staffRole)
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var doc = await _service.AddDocumentAsync(created.Id, UserId, Role.Policyholder,
+            new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream));
+
+        var result = await _service.DeleteDocumentAsync(created.Id, doc.Id, OtherUserId, staffRole);
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task DeleteDocument_AsNonOwner_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var doc = await _service.AddDocumentAsync(created.Id, UserId, Role.Policyholder,
+            new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.DeleteDocumentAsync(created.Id, doc.Id, OtherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task DeleteDocument_WrongClaim_ThrowsKeyNotFoundException()
+    {
+        var created1 = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var created2 = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var doc = await _service.AddDocumentAsync(created1.Id, UserId, Role.Policyholder,
+            new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream));
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            _service.DeleteDocumentAsync(created2.Id, doc.Id, UserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task DeleteDocument_FinalizedClaim_ThrowsInvalidOperationException()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var doc = await _service.AddDocumentAsync(created.Id, UserId, Role.Policyholder,
+            new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream));
+
+        var domainClaim = await _claimRepository.GetByIdAsync(created.Id);
+        domainClaim!.Status = ClaimStatus.Approved;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.DeleteDocumentAsync(created.Id, doc.Id, UserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task DeleteDocument_InvokesStorageDelete()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var doc = await _service.AddDocumentAsync(created.Id, UserId, Role.Policyholder,
+            new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream));
+
+        var initialCount = _storageService.DeleteCallCount;
+        await _service.DeleteDocumentAsync(created.Id, doc.Id, UserId, Role.Policyholder);
+
+        Assert.True(_storageService.DeleteCallCount > initialCount);
+    }
+
+    [Fact]
+    public async Task DeleteDocument_WhenStorageFails_ThrowsAndDoesNotDeleteFromDb()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var doc = await _service.AddDocumentAsync(created.Id, UserId, Role.Policyholder,
+            new UploadDocumentDto("Police Report", "report.pdf", "application/pdf", 3, stream));
+
+        _storageService.ShouldFail = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.DeleteDocumentAsync(created.Id, doc.Id, UserId, Role.Policyholder));
+
+        _storageService.ShouldFail = false;
+
+        // Verify document is still present in repository
+        var docs = await _service.GetDocumentsAsync(created.Id, UserId, Role.Policyholder);
+        Assert.Contains(docs, d => d.Id == doc.Id);
+    }
+
     // ── COVERAGE VALIDATION ──
 
     [Fact]
     public async Task ValidateCoverage_ReturnsResult()
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
-        var result = await _service.ValidateCoverageAsync(created.Id, UserId);
+        var result = await _service.ValidateCoverageAsync(created.Id, UserId, Role.Policyholder);
+
+        Assert.True(result.IsValid);
+        Assert.True(result.IsCovered);
+    }
+
+    [Fact]
+    public async Task ValidateCoverage_AsOtherPolicyholder_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.ValidateCoverageAsync(created.Id, OtherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task ValidateCoverage_AsClaimsAdjuster_Succeeds()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var result = await _service.ValidateCoverageAsync(created.Id, OtherUserId, Role.ClaimsAdjuster);
 
         Assert.True(result.IsValid);
         Assert.True(result.IsCovered);
@@ -222,12 +546,36 @@ public class ClaimServiceTests
     // ── DOCUMENT VERIFICATION ──
 
     [Fact]
-    public async Task VerifyDocuments_ReturnsAgentResult()
+    public async Task VerifyDocuments_ReturnsAgentResult_WithAiMetadata()
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
-        var result = await _service.VerifyDocumentsAsync(created.Id, UserId);
+        var result = await _service.VerifyDocumentsAsync(created.Id, UserId, Role.Policyholder);
 
         Assert.NotNull(result);
+        Assert.True(result.Complete);
+        Assert.True(result.AiUsed);
+        Assert.Equal("google", result.AiProvider);
+        Assert.Equal("gemini-2.5-flash", result.AiModel);
+        Assert.NotNull(result.ReasoningSummary);
+        Assert.False(result.FallbackUsed);
+    }
+
+    [Fact]
+    public async Task VerifyDocuments_AsOtherPolicyholder_ThrowsUnauthorized()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _service.VerifyDocumentsAsync(created.Id, OtherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task VerifyDocuments_AsClaimsAdjuster_Succeeds()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var result = await _service.VerifyDocumentsAsync(created.Id, OtherUserId, Role.ClaimsAdjuster);
+
+        Assert.NotNull(result);
+        Assert.True(result.Complete);
     }
 
     // ── Helpers ──
@@ -262,8 +610,13 @@ internal class FakeClaimRepository : IClaimRepository
     public Task<List<Claim>> GetByPolicyHolderIdAsync(Guid policyHolderId) =>
         Task.FromResult(_claims.Where(c => c.PolicyHolderId == policyHolderId).ToList());
 
-    public Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null) =>
-        Task.FromResult(_claims.ToList());
+    public Task<List<Claim>> GetAllAsync(string? statusFilter = null, string? searchTerm = null, Guid? policyHolderId = null)
+    {
+        var result = _claims.AsEnumerable();
+        if (policyHolderId.HasValue)
+            result = result.Where(c => c.PolicyHolderId == policyHolderId.Value);
+        return Task.FromResult(result.ToList());
+    }
 
     public Task<Claim> AddAsync(Claim claim)
     {
@@ -285,29 +638,86 @@ internal class FakeClaimRepository : IClaimRepository
         return Task.CompletedTask;
     }
 
+    public Task DeleteDocumentAsync(ClaimDocument document)
+    {
+        var claim = _claims.FirstOrDefault(c => c.Id == document.ClaimId);
+        claim?.Documents?.Remove(document);
+        return Task.CompletedTask;
+    }
+
     public Task<bool> ExistsAsync(Guid id) =>
         Task.FromResult(_claims.Any(c => c.Id == id));
 
     public Task<string> GenerateClaimNumberAsync() =>
         Task.FromResult($"CLM-TEST-{_claims.Count + 1:D4}");
+
+    private readonly List<AgentWorkflow> _workflows = new();
+
+    public Task<AgentWorkflow?> GetWorkflowAttemptByIdempotencyKeyAsync(Guid claimId, string idempotencyKey)
+    {
+        var planKey = $"idempotency:{idempotencyKey}";
+        return Task.FromResult(_workflows.FirstOrDefault(w => w.ClaimId == claimId && w.Plan == planKey));
+    }
+
+    public Task<AgentWorkflow> RecordWorkflowAttemptAsync(AgentWorkflow workflow)
+    {
+        _workflows.Add(workflow);
+        return Task.FromResult(workflow);
+    }
 }
 
 internal class FakeDocumentStorageService : IDocumentStorageService
 {
+    public bool ShouldFail { get; set; } = false;
+    public bool ShouldThrow { get; set; } = false;
+    public int DeleteCallCount { get; private set; } = 0;
+
     public Task<string> UploadAsync(string fileName, string contentType, Stream fileStream) =>
         Task.FromResult($"/uploads/fake_{fileName}");
 
-    public Task<bool> DeleteAsync(string fileUrl) =>
-        Task.FromResult(true);
+    public Task<bool> DeleteAsync(string fileUrl)
+    {
+        DeleteCallCount++;
+        if (ShouldThrow)
+            throw new System.IO.IOException("Simulated storage failure");
+        if (ShouldFail)
+            return Task.FromResult(false);
+        return Task.FromResult(true);
+    }
 }
 
 internal class FakePolicyValidationService : IPolicyValidationService
 {
+    public bool PolicyOwnershipResult { get; set; } = true;
+    public Guid? PolicyOwnerId { get; set; } = null;
+    public string PolicyTypeName { get; set; } = "Motor Insurance";
+    public bool PolicyExists { get; set; } = true;
+
     public Task<CoverageValidationResultDto> ValidateCoverageAsync(Guid policyId, string claimType, decimal claimedAmount) =>
         Task.FromResult(new CoverageValidationResultDto(true, true, 100000m, 500m, claimType, new List<string>()));
 
     public Task<bool> IsPolicyActiveAsync(Guid policyId) =>
         Task.FromResult(true);
+
+    public Task<bool> ValidatePolicyOwnershipAsync(Guid policyId, Guid policyHolderId) =>
+        Task.FromResult(PolicyOwnershipResult);
+
+    public Task<Guid?> GetPolicyOwnerIdAsync(Guid policyId) =>
+        Task.FromResult<Guid?>(PolicyOwnerId ?? Guid.NewGuid());
+
+    public Task<PolicyValidationDetailsDto?> GetPolicyDetailsAsync(Guid policyId)
+    {
+        if (!PolicyExists) return Task.FromResult<PolicyValidationDetailsDto?>(null);
+
+        var ownerId = PolicyOwnershipResult ? (PolicyOwnerId ?? Guid.Empty) : Guid.NewGuid();
+        return Task.FromResult<PolicyValidationDetailsDto?>(new PolicyValidationDetailsDto(
+            policyId,
+            ownerId,
+            Guid.NewGuid(),
+            PolicyTypeName,
+            true
+        ));
+    }
 }
 
 internal class FakeDocumentVerificationClient : IDocumentVerificationClient
@@ -316,5 +726,14 @@ internal class FakeDocumentVerificationClient : IDocumentVerificationClient
         Guid claimId, string claimType, List<ClaimDocumentDto> documents,
         DateTime incidentDate, decimal claimedAmount) =>
         Task.FromResult(new DocumentVerificationResultDto(
-            true, new List<string>(), new List<DocumentInconsistencyDto>(), new List<string>()));
+            Complete: true,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: true,
+            AiProvider: "google",
+            AiModel: "gemini-2.5-flash",
+            ReasoningSummary: "All documents verified successfully with AI reasoning.",
+            FallbackUsed: false
+        ));
 }

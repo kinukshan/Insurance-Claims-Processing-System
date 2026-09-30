@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace InsuranceClaims.Application.RiskAssessment.Interfaces;
 
 /// <summary>
@@ -18,12 +20,29 @@ public interface IAiRiskClient
 /// </summary>
 public class AiRiskRequest
 {
+    [JsonPropertyName("claim_id")]
     public Guid ClaimId { get; set; }
+
+    [JsonPropertyName("policy_holder_id")]
     public Guid PolicyHolderId { get; set; }
+
+    [JsonPropertyName("claim_amount")]
     public decimal ClaimAmount { get; set; }
+
+    [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("incident_date")]
     public DateTime IncidentDate { get; set; }
+
+    [JsonPropertyName("incident_location")]
     public string IncidentLocation { get; set; } = string.Empty;
+
+    [JsonPropertyName("claim_type")]
+    public string? ClaimType { get; set; }
+
+    [JsonPropertyName("document_flags")]
+    public List<string>? DocumentFlags { get; set; }
 }
 
 /// <summary>
@@ -31,9 +50,29 @@ public class AiRiskRequest
 /// </summary>
 public class AiRiskResult
 {
+    [JsonPropertyName("risk_score")]
     public decimal RiskScore { get; set; }
+
+    [JsonPropertyName("flags")]
     public List<AiRiskFlag> Flags { get; set; } = new();
+
+    [JsonPropertyName("recommendation")]
     public string Recommendation { get; set; } = "proceed";
+
+    [JsonPropertyName("ai_used")]
+    public bool AiUsed { get; set; }
+
+    [JsonPropertyName("ai_provider")]
+    public string? AiProvider { get; set; }
+
+    [JsonPropertyName("ai_model")]
+    public string? AiModel { get; set; }
+
+    [JsonPropertyName("reasoning_summary")]
+    public string? ReasoningSummary { get; set; }
+
+    [JsonPropertyName("fallback_used")]
+    public bool FallbackUsed { get; set; }
 }
 
 /// <summary>
@@ -41,7 +80,12 @@ public class AiRiskResult
 /// </summary>
 public class AiRiskFlag
 {
+    [JsonPropertyName("flag_type")]
     public string FlagType { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("severity")]
     public string Severity { get; set; } = "Medium";
 }

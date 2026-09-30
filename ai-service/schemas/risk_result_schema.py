@@ -35,16 +35,28 @@ class RiskFlag(BaseModel):
     @field_validator("flag_type")
     @classmethod
     def validate_flag_type(cls, v: str) -> str:
-        allowed = {
-            "DuplicateClaim",
-            "HighAmount",
-            "InconsistentData",
-            "SuspiciousPattern",
-            "FrequentClaims",
+        canonical_map = {
+            "duplicateclaim": "DuplicateClaim",
+            "highamount": "HighAmount",
+            "inconsistentdata": "InconsistentData",
+            "suspiciouspattern": "SuspiciousPattern",
+            "frequentclaims": "FrequentClaims",
+            "documenttypemismatch": "DocumentTypeMismatch",
+            "document_type_mismatch": "DocumentTypeMismatch",
+            "documentunreadable": "DocumentUnreadable",
+            "document_unreadable": "DocumentUnreadable",
+            "duplicatedocumentreused": "DuplicateDocumentReused",
+            "duplicate_document_reused": "DuplicateDocumentReused",
+            "documentcontentinconsistent": "DocumentContentInconsistent",
+            "document_content_inconsistent": "DocumentContentInconsistent",
+            "documentverificationfailed": "DocumentVerificationFailed",
+            "required_document_verification_failed": "DocumentVerificationFailed",
+            "requireddocumentverificationfailed": "DocumentVerificationFailed",
         }
-        if v not in allowed:
-            return "SuspiciousPattern"
-        return v
+        clean = v.strip().lower()
+        if clean in canonical_map:
+            return canonical_map[clean]
+        return "SuspiciousPattern"
 
 
 class RiskAssessmentResult(BaseModel):

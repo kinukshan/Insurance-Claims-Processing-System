@@ -21,7 +21,9 @@ public class RiskAssessmentRepository : IRiskAssessmentRepository
     /// <inheritdoc />
     public async Task<Claim?> GetClaimByIdAsync(Guid claimId)
     {
-        return await _dbContext.Claims.FirstOrDefaultAsync(c => c.Id == claimId);
+        return await _dbContext.Claims
+            .Include(c => c.Documents)
+            .FirstOrDefaultAsync(c => c.Id == claimId);
     }
 
     /// <inheritdoc />
@@ -69,6 +71,16 @@ public class RiskAssessmentRepository : IRiskAssessmentRepository
             .Include(r => r.FraudCase)
             .Where(r => r.FraudFlags.Any(f => !f.IsResolved))
             .OrderByDescending(r => r.RiskScore)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Domain.RiskAssessment.RiskAssessment>> GetAllAsync()
+    {
+        return await _dbContext.RiskAssessments
+            .Include(r => r.FraudFlags)
+            .Include(r => r.FraudCase)
+            .OrderByDescending(r => r.AssessmentTimestamp)
             .ToListAsync();
     }
 

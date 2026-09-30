@@ -1,9 +1,23 @@
 // Payout history — Component D (Kinukshan)
-// Staff-facing paginated, filterable, sortable payout history
+// Paginated, filterable, sortable payout history for staff and policyholders
 
 import React, { useState, useEffect, useCallback } from 'react'
 import PayoutStatusBadge from '../../components/payout/PayoutStatusBadge'
-import { getPayoutHistory } from '../../services/payoutService'
+import { getPayoutHistory, getMyPayouts } from '../../services/payoutService'
+import { useAuth } from '../../context/AuthContext'
+import { formatCurrency } from '../../utils/policyClaimMapping'
+
+function useOptionalAuth() {
+  try {
+    const auth = useAuth()
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    }
+  } catch {
+    return { role: null, user: null }
+  }
+}
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
@@ -18,6 +32,9 @@ const STATUS_OPTIONS = [
 ]
 
 function PayoutHistory() {
+  const { role } = useOptionalAuth()
+  const isPolicyholder = role === 'Policyholder'
+
   const [data, setData] = useState({ items: [], totalCount: 0, page: 1, pageSize: 20, totalPages: 0 })
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('')
@@ -25,12 +42,15 @@ function PayoutHistory() {
   const [sortDesc, setSortDesc] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [errorType, setErrorType] = useState(null) // 'auth' | 'forbidden' | 'network' | 'error'
 
   const loadHistory = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setErrorType(null)
     try {
-      const result = await getPayoutHistory({
+      const fetchFn = isPolicyholder ? getMyPayouts : getPayoutHistory
+      const result = await fetchFn({
         page,
         pageSize: 20,
         status: statusFilter || undefined,
@@ -39,15 +59,24 @@ function PayoutHistory() {
       })
       setData(result)
     } catch (err) {
-      setError(err.message)
+      if (err.status === 401) {
+        setError('Your session has expired. Please log in again.')
+        setErrorType('auth')
+      } else if (err.status === 403) {
+        setError(isPolicyholder ? 'You do not have permission to view these payouts.' : 'You do not have permission to view payout history.')
+        setErrorType('forbidden')
+      } else {
+        setError(err.message || 'Failed to load payout history.')
+        setErrorType('error')
+      }
     } finally {
       setLoading(false)
     }
-  }, [page, statusFilter, sortBy, sortDesc])
+  }, [page, statusFilter, sortBy, sortDesc, isPolicyholder])
 
   useEffect(() => { loadHistory() }, [loadHistory])
 
-  const fmt = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+  const fmt = (n) => formatCurrency(n)
   const fmtDate = (d) => new Date(d).toLocaleString()
 
   const containerStyle = { maxWidth: '900px', margin: '0 auto', padding: '24px' }
@@ -65,9 +94,17 @@ function PayoutHistory() {
     fontWeight: active ? 700 : 400,
   })
 
+  const errorBgColor = errorType === 'auth' ? '#fff3e0' : errorType === 'forbidden' ? '#fce4ec' : '#ffebee'
+  const errorTextColor = errorType === 'auth' ? '#e65100' : errorType === 'forbidden' ? '#ad1457' : '#c62828'
+
   return (
     <div style={containerStyle}>
-      <h2>Payout History</h2>
+      <h2>{isPolicyholder ? 'My Payouts' : 'Payout History'}</h2>
+      {isPolicyholder && (
+        <p style={{ color: '#666', marginTop: '-8px', marginBottom: '16px', fontSize: '0.95rem' }}>
+          Track settlements and payment status for your filed claims.
+        </p>
+      )}
 
       <div style={filterRow}>
         <select id="payout-status-filter" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }} style={selectStyle}>
@@ -84,25 +121,27 @@ function PayoutHistory() {
           {sortDesc ? '↓ Desc' : '↑ Asc'}
         </button>
 
-        <span style={{ fontSize: '0.85rem', color: '#888' }}>
-          {data.totalCount} total records
-        </span>
+        {!error && (
+          <span style={{ fontSize: '0.85rem', color: '#888' }}>
+            {data.totalCount} total records
+          </span>
+        )}
       </div>
 
       {error && (
-        <div id="payout-history-error" style={{ padding: '12px', backgroundColor: '#ffebee', color: '#c62828', borderRadius: '6px', marginBottom: '16px' }}>
+        <div id="payout-history-error" style={{ padding: '12px', backgroundColor: errorBgColor, color: errorTextColor, borderRadius: '6px', marginBottom: '16px' }}>
           {error}
         </div>
       )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading...</div>
-      ) : (
+      ) : !error ? (
         <>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={thStyle}>Claim ID</th>
+                <th style={thStyle}>Claim</th>
                 <th style={thStyle}>Final Payout</th>
                 <th style={thStyle}>Status</th>
                 <th style={thStyle}>Created</th>
@@ -114,7 +153,9 @@ function PayoutHistory() {
               ) : (
                 data.items.map((p) => (
                   <tr key={p.id}>
-                    <td style={{ ...tdStyle, fontSize: '0.8rem', fontFamily: 'monospace' }}>{p.claimId.substring(0, 8)}...</td>
+                    <td style={{ ...tdStyle, fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                      {p.claimNumber || p.claimId.substring(0, 8) + '...'}
+                    </td>
                     <td style={tdStyle}>{fmt(p.finalPayout)}</td>
                     <td style={tdStyle}><PayoutStatusBadge status={p.statusDisplay} /></td>
                     <td style={{ ...tdStyle, fontSize: '0.85rem', color: '#666' }}>{fmtDate(p.createdAt)}</td>
@@ -134,7 +175,7 @@ function PayoutHistory() {
             </div>
           )}
         </>
-      )}
+      ) : null}
     </div>
   )
 }

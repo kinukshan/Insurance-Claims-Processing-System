@@ -237,13 +237,13 @@ public class RiskAssessmentServiceTests : IDisposable
     }
 
     // ══════════════════════════════════════════════════════════
-    // Test 7 — AI merge uses 60/40 weighting
+    // Test 7 — Deterministic rules remain authoritative with AI
     // ══════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task AssessClaim_WithAi_Uses6040Weighting()
+    public async Task AssessClaim_WithAi_PreservesDeterministicRulesAuthoritative()
     {
-        var claim = await SeedClaim(amount: 75000m); // 25 pts from rules
+        var claim = await SeedClaim(amount: 75000m); // 25 pts from rules (high amount)
 
         _aiClient.ConfiguredResult = new AiRiskResult
         {
@@ -252,7 +252,11 @@ public class RiskAssessmentServiceTests : IDisposable
             {
                 new() { FlagType = "SuspiciousPattern", Description = "AI detected suspicious pattern", Severity = "High" }
             },
-            Recommendation = "escalate"
+            Recommendation = "escalate",
+            AiUsed = true,
+            AiProvider = "gemini",
+            AiModel = "gemini-2.0-flash",
+            ReasoningSummary = "Deterministic risk verified; high claim amount warrants standard review."
         };
 
         var result = await _service.AssessClaimAsync(claim.Id, new AssessClaimRequest
@@ -260,10 +264,60 @@ public class RiskAssessmentServiceTests : IDisposable
             IncludeAiAnalysis = true
         });
 
-        // Expected: rules = 25, ai = 80 → final = 25*0.6 + 80*0.4 = 15 + 32 = 47
-        // (approximately, since frequent claims may also contribute)
-        Assert.True(result.RiskScore > 0, "Score should be > 0 with AI contribution.");
-        Assert.True(result.FraudFlagCount >= 2, "Should have rule flag + AI flag.");
+        // Deterministic rule score (25m) must remain authoritative; Gemini does NOT alter score or flags
+        Assert.Equal(25m, result.RiskScore);
+        Assert.Equal(RiskLevel.Low, result.RiskLevel);
+        Assert.Equal(1, result.FraudFlagCount); // HighAmount rule flag only
+        Assert.True(result.AiUsed);
+        Assert.Equal("gemini", result.AiProvider);
+        Assert.Equal("gemini-2.0-flash", result.AiModel);
+        Assert.False(result.FallbackUsed);
+        Assert.Contains("Deterministic risk verified", result.ReasoningSummary);
+    }
+
+    [Fact]
+    public async Task AssessClaim_AiFailure_DeterministicResultRemainsIdentical()
+    {
+        var claimWithAi = await SeedClaim(amount: 75000m);
+        _aiClient.ConfiguredResult = new AiRiskResult
+        {
+            RiskScore = 95m, // AI suggests critical score
+            Flags = new List<AiRiskFlag> { new() { FlagType = "FraudAlert", Description = "AI alert", Severity = "Critical" } },
+            Recommendation = "reject",
+            AiUsed = true,
+            ReasoningSummary = "AI analysis"
+        };
+        var resultWithAi = await _service.AssessClaimAsync(claimWithAi.Id, new AssessClaimRequest { IncludeAiAnalysis = true });
+
+        var claimNoAi = await SeedClaim(amount: 75000m);
+        _aiClient.ConfiguredResult = null; // AI failure / fallback
+        var resultNoAi = await _service.AssessClaimAsync(claimNoAi.Id, new AssessClaimRequest { IncludeAiAnalysis = true });
+
+        // Deterministic scores, levels, recommendations, and flag counts must be identical
+        Assert.Equal(resultWithAi.RiskScore, resultNoAi.RiskScore);
+        Assert.Equal(resultWithAi.RiskLevel, resultNoAi.RiskLevel);
+        Assert.Equal(resultWithAi.Recommendation, resultNoAi.Recommendation);
+        Assert.Equal(resultWithAi.FraudFlagCount, resultNoAi.FraudFlagCount);
+        Assert.True(resultNoAi.FallbackUsed);
+    }
+
+    [Fact]
+    public async Task GetAllAssessmentsAsync_ReturnsAllAssessmentsWithClaimNumbers()
+    {
+        var claim1 = await SeedClaim(amount: 5000m);
+        claim1.ClaimNumber = "CLM-20260921-0001";
+        var claim2 = await SeedClaim(amount: 75000m);
+        claim2.ClaimNumber = "CLM-20260921-0002";
+        await _dbContext.SaveChangesAsync();
+
+        await _service.AssessClaimAsync(claim1.Id, new AssessClaimRequest());
+        await _service.AssessClaimAsync(claim2.Id, new AssessClaimRequest());
+
+        var all = await _service.GetAllAssessmentsAsync();
+
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, a => a.ClaimNumber == "CLM-20260921-0001");
+        Assert.Contains(all, a => a.ClaimNumber == "CLM-20260921-0002");
     }
 
     // ══════════════════════════════════════════════════════════
@@ -521,6 +575,13 @@ internal class StubRiskAssessmentRepository : IRiskAssessmentRepository
             .Include(r => r.FraudCase)
             .OrderByDescending(r => r.AssessmentTimestamp)
             .FirstOrDefaultAsync(r => r.ClaimId == claimId);
+
+    public async Task<IReadOnlyList<Domain.RiskAssessment.RiskAssessment>> GetAllAsync()
+        => await _db.RiskAssessments
+            .Include(r => r.FraudFlags)
+            .Include(r => r.FraudCase)
+            .OrderByDescending(r => r.AssessmentTimestamp)
+            .ToListAsync();
 
     public async Task<IReadOnlyList<Domain.RiskAssessment.RiskAssessment>> GetFlaggedAsync()
         => await _db.RiskAssessments

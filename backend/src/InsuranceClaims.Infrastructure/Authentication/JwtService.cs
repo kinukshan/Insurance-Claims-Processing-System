@@ -32,12 +32,17 @@ public class JwtService
 
         var expiryMinutes = int.Parse(_configuration["Jwt:ExpiryMinutes"] ?? "60");
 
-        var claims = new[]
+        var fullName = $"{user.FirstName} {user.LastName}".Trim();
+        var displayName = !string.IsNullOrWhiteSpace(fullName) ? fullName : user.Email;
+
+        var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(JwtRegisteredClaimNames.GivenName, user.FirstName),
             new Claim(JwtRegisteredClaimNames.FamilyName, user.LastName),
+            new Claim(ClaimTypes.Name, displayName),
+            new Claim("name", displayName),
             new Claim(ClaimTypes.Role, user.Role.ToString()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };

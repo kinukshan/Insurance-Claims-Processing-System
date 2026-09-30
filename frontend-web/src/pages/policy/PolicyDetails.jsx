@@ -1,12 +1,27 @@
-// Policy details — Component A (Member 1)
-// Implements full policy detail view with coverage, premium calc, renewal, status badge
-
 import React, { useState, useEffect, useCallback } from 'react'
 import PolicyStatusBadge from '../../components/policy/PolicyStatusBadge'
 import CoverageTable from '../../components/policy/CoverageTable'
 import { getPolicyById, calculatePremium, renewPolicy, getCoverage } from '../../services/policyService'
+import { useAuth } from '../../context/AuthContext'
+import { formatCurrency } from '../../utils/policyClaimMapping'
+
+function useOptionalAuth() {
+  try {
+    const auth = useAuth()
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    }
+  } catch {
+    return { role: null, user: null }
+  }
+}
 
 function PolicyDetails({ policyId, onBack, onEdit }) {
+  const { role, user } = useOptionalAuth()
+  const currentRole = role || user?.role
+  const canEdit = currentRole === 'Underwriter' || currentRole === 'Admin'
+
   const [policy, setPolicy] = useState(null)
   const [coverages, setCoverages] = useState([])
   const [premiumResult, setPremiumResult] = useState(null)
@@ -145,7 +160,7 @@ function PolicyDetails({ policyId, onBack, onEdit }) {
           <PolicyStatusBadge status={policy.status} />
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {onEdit && (
+          {canEdit && onEdit && (
             <button
               onClick={() => onEdit(policy.id)}
               style={{
@@ -169,9 +184,9 @@ function PolicyDetails({ policyId, onBack, onEdit }) {
         <h3 style={{ marginTop: 0 }}>Policy Information</h3>
         {infoRow('Policy Type', policy.policyTypeName || 'N/A')}
         {infoRow('Policyholder ID', policy.policyholderId)}
-        {infoRow('Coverage Limit', `$${Number(policy.coverageLimit).toLocaleString()}`)}
-        {infoRow('Premium', `$${Number(policy.premium).toLocaleString()}`)}
-        {infoRow('Deductible', `$${Number(policy.deductible).toLocaleString()}`)}
+        {infoRow('Coverage Limit', formatCurrency(policy.coverageLimit))}
+        {infoRow('Premium', formatCurrency(policy.premium))}
+        {infoRow('Deductible', policy.deductiblePercentage != null ? `${policy.deductiblePercentage}%` : formatCurrency(policy.deductible))}
         {infoRow('Start Date', new Date(policy.startDate).toLocaleDateString())}
         {infoRow('Expiry Date', new Date(policy.expiryDate).toLocaleDateString())}
         {infoRow('Renewal Status', policy.renewalStatus)}
@@ -225,7 +240,7 @@ function PolicyDetails({ policyId, onBack, onEdit }) {
       {premiumResult && (
         <div style={{ backgroundColor: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
           <h4 style={{ marginTop: 0 }}>Premium Calculation</h4>
-          <p><strong>Calculated Premium:</strong> ${Number(premiumResult.calculatedPremium).toLocaleString()}</p>
+          <p><strong>Calculated Premium:</strong> {formatCurrency(premiumResult.calculatedPremium)}</p>
           <p style={{ fontSize: '0.85rem', color: '#6b7280' }}>{premiumResult.breakdown}</p>
         </div>
       )}

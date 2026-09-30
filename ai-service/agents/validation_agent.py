@@ -18,8 +18,11 @@ Responsibility:
     No chain-of-thought is stored.
 """
 
+import logging
 from datetime import datetime
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 from schemas.payout_result_schema import (
     PayoutValidationRequest,
@@ -113,6 +116,10 @@ class ValidationSafetyAgent:
             coverage_limit=request.coverage_limit,
             deductible=request.deductible,
             proposed_payout=request.proposed_payout,
+            policy_type=request.policy_type,
+            claim_type=request.claim_type,
+            deductible_percentage=request.deductible_percentage,
+            deductible_type=request.deductible_type,
         )
         if result:
             violations.append(result)
@@ -130,7 +137,23 @@ class ValidationSafetyAgent:
             f"{'PASSED' if is_valid else 'FAILED'} with {len(violations)} violation(s)."
         )
 
-        # Gemini contextual safety analysis
+        # Deterministic violations short-circuit: do NOT call Gemini!
+        if not is_valid:
+            return PayoutValidationResult(
+                valid=False,
+                violations=violations,
+                requires_human_approval=True,
+                agent_id=self.AGENT_ID,
+                timestamp=datetime.utcnow(),
+                summary=summary,
+                ai_used=False,
+                ai_provider=None,
+                ai_model=None,
+                reasoning_summary=None,
+                fallback_used=False,
+            )
+
+        # Gemini contextual safety analysis (runs ONLY when deterministic validation passes)
         ai_used = False
         ai_provider = None
         ai_model = None
@@ -139,18 +162,27 @@ class ValidationSafetyAgent:
 
         if self._gemini and self._gemini.is_available:
             try:
+                eligible_amt = request.eligible_amount if request.eligible_amount is not None else min(request.approved_claim_amount, request.coverage_limit)
+                final_amt = request.final_payout if request.final_payout is not None else request.proposed_payout
+                ded_pct_str = f"{request.deductible_percentage:.1f}%" if request.deductible_percentage is not None else "N/A"
+                ded_type_str = request.deductible_type or ("Percentage" if request.deductible_percentage is not None else "Fixed")
+
                 prompt = (
                     f"Claim ID: {request.claim_id}\n"
                     f"Policy Type: {request.policy_type}\n"
                     f"Claim Type: {request.claim_type}\n"
-                    f"Approved Amount: ${request.approved_claim_amount:,.2f}\n"
-                    f"Coverage Limit: ${request.coverage_limit:,.2f}\n"
-                    f"Deductible: ${request.deductible:,.2f}\n"
-                    f"Proposed Payout: ${request.proposed_payout:,.2f}\n"
-                    f"Deterministic Validation: {'PASSED' if is_valid else 'FAILED'}\n"
-                    f"Violations: {'; '.join(violations) if violations else 'None'}\n\n"
+                    f"Approved Claim Amount: LKR {request.approved_claim_amount:,.2f}\n"
+                    f"Policy Coverage Limit: LKR {request.coverage_limit:,.2f}\n"
+                    f"Eligible Amount: LKR {eligible_amt:,.2f}\n"
+                    f"Deductible Type: {ded_type_str}\n"
+                    f"Deductible Percentage: {ded_pct_str}\n"
+                    f"Calculated Monetary Deductible: LKR {request.deductible:,.2f}\n"
+                    f"Final Payout: LKR {final_amt:,.2f}\n"
+                    f"Proposed Payout: LKR {request.proposed_payout:,.2f}\n"
+                    f"Deterministic Validation: PASSED\n"
+                    f"Violations: None\n\n"
                     "Provide a concise 2-sentence financial safety summary explaining why this payout proposal is valid "
-                    "or why specific policy rules were violated. Reiterate that human supervisor approval is required."
+                    "under the policy limits and conditions. Reiterate that human supervisor approval is required."
                 )
                 system_instruction = (
                     "You are an insurance payout validation and financial safety assistant. "
@@ -160,6 +192,7 @@ class ValidationSafetyAgent:
                 explanation = self._gemini.generate_text(
                     prompt=prompt,
                     system_instruction=system_instruction,
+                    operation_name="payout_validation",
                 )
                 if explanation:
                     ai_used = True
@@ -169,8 +202,18 @@ class ValidationSafetyAgent:
                     reasoning_summary = explanation
                 else:
                     fallback_used = True
-            except Exception:
+                    logger.info(
+                        "Payout validation: Gemini safety summary unavailable for claim %s. "
+                        "Using authoritative deterministic validation (passed=%s, violations=%d).",
+                        request.claim_id, is_valid, len(violations)
+                    )
+            except Exception as exc:
                 fallback_used = True
+                logger.warning(
+                    "Payout validation: Gemini call threw unexpected %s for claim %s. "
+                    "Using authoritative deterministic validation.",
+                    type(exc).__name__, request.claim_id
+                )
         else:
             fallback_used = True
 

@@ -21,8 +21,8 @@ def valid_request():
     """A valid payout proposal that should pass all checks."""
     return PayoutValidationRequest(
         claim_id="test-claim-001",
-        policy_type="Comprehensive",
-        claim_type="Vehicle Damage",
+        policy_type="Motor Insurance",
+        claim_type="Motor",
         approved_claim_amount=15000.00,
         coverage_limit=50000.00,
         deductible=500.00,
@@ -189,8 +189,8 @@ def test_zero_payout_passes(agent):
     """Zero payout (deductible >= eligible) should pass validation."""
     request = PayoutValidationRequest(
         claim_id="test-claim-006",
-        policy_type="Basic",
-        claim_type="Minor Damage",
+        policy_type="Motor Insurance",
+        claim_type="Motor",
         approved_claim_amount=500.00,
         coverage_limit=50000.00,
         deductible=1000.00,
@@ -204,8 +204,8 @@ def test_exact_coverage_limit_passes(agent):
     """Payout exactly at coverage limit should pass."""
     request = PayoutValidationRequest(
         claim_id="test-claim-007",
-        policy_type="Premium",
-        claim_type="Total Loss",
+        policy_type="Motor Insurance",
+        claim_type="Motor",
         approved_claim_amount=100000.00,
         coverage_limit=50000.00,
         deductible=0.00,
@@ -245,7 +245,7 @@ class TestGeminiHybridValidationSafety:
         assert result.fallback_used is False
 
     def test_gemini_cannot_override_coverage_violation(self):
-        """Even if Gemini thinks the payout is fine, rule violations MUST invalidate the proposal."""
+        """Even if Gemini thinks the payout is fine, rule violations MUST invalidate the proposal and short-circuit Gemini."""
         from unittest.mock import MagicMock
         from agents.validation_agent import ValidationSafetyAgent
 
@@ -256,8 +256,8 @@ class TestGeminiHybridValidationSafety:
         agent = ValidationSafetyAgent(gemini_client_instance=mock_gemini)
         invalid_request = PayoutValidationRequest(
             claim_id="CLM-OVERLIMIT",
-            policy_type="Auto Standard",
-            claim_type="Collision",
+            policy_type="Motor Insurance",
+            claim_type="Motor",
             approved_claim_amount=80000.0,
             coverage_limit=50000.0,
             deductible=1000.0,
@@ -270,7 +270,10 @@ class TestGeminiHybridValidationSafety:
         assert len(result.violations) > 0
         assert any("coverage limit" in v.lower() for v in result.violations)
         assert result.requires_human_approval is True
-        assert result.ai_used is True
+        # Under requirement 33: deterministic violations short-circuit without calling Gemini
+        assert result.ai_used is False
+        assert result.fallback_used is False
+        mock_gemini.generate_text.assert_not_called()
 
     def test_gemini_failure_preserves_safety_validation(self, valid_request):
         """When Gemini throws an error, safety checks still pass deterministically with human approval required."""

@@ -195,4 +195,118 @@ void main() {
       }
     });
   });
+
+  group('PolicyType Model', () {
+    test('fromJson creates PolicyType correctly', () {
+      final json = {
+        'id': '22222222-2222-4222-8222-222222222221',
+        'name': 'Motor Insurance',
+        'description': 'Coverage for insured motor vehicles.',
+        'defaultCoverageLimit': 500000.0,
+        'defaultDeductible': 10000.0,
+        'insuranceClass': 0,
+        'insuranceClassCode': 'General',
+        'insuranceClassName': 'General Insurance',
+      };
+
+      final type = PolicyType.fromJson(json);
+
+      expect(type.id, '22222222-2222-4222-8222-222222222221');
+      expect(type.name, 'Motor Insurance');
+      expect(type.description, 'Coverage for insured motor vehicles.');
+      expect(type.defaultCoverageLimit, 500000.0);
+      expect(type.defaultDeductible, 10000.0);
+      expect(type.insuranceClass, 0);
+      expect(type.insuranceClassCode, 'General');
+      expect(type.insuranceClassName, 'General Insurance');
+      expect(type.fixedDeductible, 10000.0);
+      expect(type.isLife, isFalse);
+    });
+
+    test('fixedDeductible enforces authoritative values for all products', () {
+      final motor = PolicyType.fromJson({
+        'id': '1',
+        'name': 'Motor Insurance',
+        'defaultDeductible': 999.0,
+      });
+      final health = PolicyType.fromJson({
+        'id': '2',
+        'name': 'Health Insurance',
+        'defaultDeductible': 999.0,
+      });
+      final home = PolicyType.fromJson({
+        'id': '3',
+        'name': 'Home Insurance',
+        'defaultDeductible': 999.0,
+      });
+      final life = PolicyType.fromJson({
+        'id': '4',
+        'name': 'Life Insurance',
+        'defaultDeductible': 999.0,
+      });
+
+      expect(motor.fixedDeductible, 10000.0);
+      expect(health.fixedDeductible, 5000.0);
+      expect(home.fixedDeductible, 15000.0);
+      expect(life.fixedDeductible, 0.0);
+      expect(life.isLife, isTrue);
+    });
+
+    test('toJson serializes PolicyType correctly', () {
+      const type = PolicyType(
+        id: 'type-1',
+        name: 'Health Insurance',
+        description: 'Health coverage',
+        defaultCoverageLimit: 1000000.0,
+        defaultDeductible: 5000.0,
+        insuranceClass: 0,
+        insuranceClassCode: 'General',
+        insuranceClassName: 'General Insurance',
+      );
+
+      final json = type.toJson();
+      expect(json['id'], 'type-1');
+      expect(json['name'], 'Health Insurance');
+      expect(json['defaultCoverageLimit'], 1000000.0);
+      expect(json['defaultDeductible'], 5000.0);
+    });
+  });
+
+  group('CreatePolicyRequest Model', () {
+    test('toJson serializes CreatePolicyRequest correctly', () {
+      final request = CreatePolicyRequest(
+        policyholderId: 'holder-123',
+        policyTypeId: 'type-456',
+        coverageLimit: 750000.0,
+        deductible: 15000.0,
+        startDate: DateTime.utc(2026, 9, 28),
+        expiryDate: DateTime.utc(2027, 9, 28),
+        exclusions: 'Flood, earthquake',
+      );
+
+      final json = request.toJson();
+      expect(json['policyholderId'], 'holder-123');
+      expect(json['policyTypeId'], 'type-456');
+      expect(json['coverageLimit'], 750000.0);
+      expect(json['deductible'], 15000.0);
+      expect(json['startDate'], '2026-09-28T00:00:00.000Z');
+      expect(json['expiryDate'], '2027-09-28T00:00:00.000Z');
+      expect(json['exclusions'], 'Flood, earthquake');
+    });
+
+    test('toJson omits null or empty exclusions', () {
+      final request = CreatePolicyRequest(
+        policyholderId: 'holder-123',
+        policyTypeId: 'type-456',
+        coverageLimit: 500000.0,
+        deductible: 10000.0,
+        startDate: DateTime.utc(2026, 9, 28),
+        expiryDate: DateTime.utc(2027, 9, 28),
+        exclusions: '   ',
+      );
+
+      final json = request.toJson();
+      expect(json.containsKey('exclusions'), isFalse);
+    });
+  });
 }

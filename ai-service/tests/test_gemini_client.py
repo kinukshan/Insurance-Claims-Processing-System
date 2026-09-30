@@ -90,15 +90,10 @@ class TestGeminiClientUnit:
         assert result.summary == "Async structured"
 
     def test_sync_timeout_falls_back_gracefully(self):
+        import httpx
         client = GeminiReasoningClient(api_key="test-key")
-
-        def slow_call(*args, **kwargs):
-            import time
-            time.sleep(1.0)
-            return MagicMock(text="Too late")
-
         mock_genai_client = MagicMock()
-        mock_genai_client.models.generate_content.side_effect = slow_call
+        mock_genai_client.models.generate_content.side_effect = httpx.ReadTimeout("Request timed out")
         client._client = mock_genai_client
 
         result = client.generate_text("Prompt", timeout=0.05)

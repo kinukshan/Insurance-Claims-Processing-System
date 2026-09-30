@@ -103,7 +103,13 @@ public record DocumentVerificationResultDto(
     bool Complete,
     List<string> MissingItems,
     List<DocumentInconsistencyDto> Inconsistencies,
-    List<string> Warnings
+    List<string> Warnings,
+    bool AiUsed = false,
+    string? AiProvider = null,
+    string? AiModel = null,
+    string? ReasoningSummary = null,
+    bool FallbackUsed = false,
+    Guid? AttemptId = null
 );
 
 /// <summary>
@@ -113,4 +119,26 @@ public record DocumentInconsistencyDto(
     string Field,
     string Description,
     string Severity
+);
+
+/// <summary>
+/// Deterministic document requirements response DTO for a claim.
+/// </summary>
+public record ClaimDocumentRequirementsDto(
+    Guid ClaimId,
+    string ClaimType,
+    List<ClaimDocumentRequirementItemDto> RequiredDocuments,
+    int RequiredCount,
+    int UploadedRequiredCount,
+    int MissingCount,
+    bool Complete
+);
+
+/// <summary>
+/// A single required document item and its upload status.
+/// </summary>
+public record ClaimDocumentRequirementItemDto(
+    string Type,
+    bool Required,
+    bool Uploaded
 );

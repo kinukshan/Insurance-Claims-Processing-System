@@ -193,4 +193,74 @@ public class ClaimValidatorTests
         var missing = DocumentChecklistValidator.GetMissingDocuments("Auto", submitted);
         Assert.Empty(missing);
     }
+
+    [Fact]
+    public void ChecklistValidator_MotorType_RequiresSameAsAuto()
+    {
+        var motorRequired = DocumentChecklistValidator.GetRequiredDocuments("Motor");
+        var autoRequired = DocumentChecklistValidator.GetRequiredDocuments("Auto");
+
+        Assert.Equal(autoRequired, motorRequired);
+        Assert.Contains("Police Report", motorRequired);
+        Assert.Contains("Photos of Damage", motorRequired);
+        Assert.Contains("Repair Estimate", motorRequired);
+        Assert.Contains("Driver License", motorRequired);
+    }
+
+    [Fact]
+    public void ChecklistValidator_LifeType_RequiresCanonicalFourDocuments()
+    {
+        var required = DocumentChecklistValidator.GetRequiredDocuments("Life");
+
+        Assert.Equal(4, required.Count);
+        Assert.Contains("Death Certificate", required);
+        Assert.Contains("Policy Document", required);
+        Assert.Contains("Beneficiary / Nominee Identification", required);
+        Assert.Contains("Claim Form", required);
+    }
+
+    [Fact]
+    public void ChecklistValidator_LifeType_BeneficiaryIdAlias_SatisfiesRequirement()
+    {
+        // Submitted with historical "Beneficiary ID" instead of "Beneficiary / Nominee Identification"
+        var submitted = new List<string>
+        {
+            "Death Certificate",
+            "Policy Document",
+            "Beneficiary ID",
+            "Claim Form"
+        };
+
+        var missing = DocumentChecklistValidator.GetMissingDocuments("Life", submitted);
+        Assert.Empty(missing);
+    }
+
+    [Fact]
+    public void ChecklistValidator_LifeType_DuplicateAliases_DeduplicateCleanly()
+    {
+        // Both "Beneficiary ID" and "Beneficiary / Nominee Identification" submitted
+        var submitted = new List<string>
+        {
+            "Death Certificate",
+            "Policy Document",
+            "Beneficiary ID",
+            "Beneficiary / Nominee Identification",
+            "Claim Form"
+        };
+
+        var missing = DocumentChecklistValidator.GetMissingDocuments("Life", submitted);
+        Assert.Empty(missing);
+
+        // Missing check when only Death Certificate is missing:
+        var partialSubmitted = new List<string>
+        {
+            "Policy Document",
+            "Beneficiary ID",
+            "Beneficiary / Nominee Identification",
+            "Claim Form"
+        };
+        var partialMissing = DocumentChecklistValidator.GetMissingDocuments("Life", partialSubmitted);
+        Assert.Single(partialMissing);
+        Assert.Equal("Death Certificate", partialMissing[0]);
+    }
 }

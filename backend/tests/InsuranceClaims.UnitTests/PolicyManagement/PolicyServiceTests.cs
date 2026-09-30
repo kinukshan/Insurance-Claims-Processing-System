@@ -1,7 +1,13 @@
+using Microsoft.EntityFrameworkCore;
+using InsuranceClaims.Application.Common.Exceptions;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PolicyManagement.Validators;
+using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Enums;
+using InsuranceClaims.Domain.Users;
+using InsuranceClaims.Infrastructure.Persistence;
+using InsuranceClaims.Infrastructure.Services;
 
 namespace InsuranceClaims.UnitTests.PolicyManagement;
 
@@ -373,5 +379,160 @@ public class PolicyServiceTests
     public void RenewalStatus_HasCorrectValues(RenewalStatus status, int expected)
     {
         Assert.Equal(expected, (int)status);
+    }
+
+    // --- Policy Delete Tests ---
+
+    private static ApplicationDbContext CreateInMemoryContext()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        return new ApplicationDbContext(options);
+    }
+
+    private static Policy CreateTestPolicy(Guid policyholderId, PolicyStatus status = PolicyStatus.Draft)
+    {
+        return new Policy
+        {
+            Id = Guid.NewGuid(),
+            PolicyNumber = $"POL-{Guid.NewGuid().ToString("N")[..8].ToUpper()}",
+            PolicyholderId = policyholderId,
+            PolicyTypeId = Guid.NewGuid(),
+            CoverageLimit = 50000m,
+            Premium = 1200m,
+            Deductible = 500m,
+            StartDate = DateTime.UtcNow,
+            ExpiryDate = DateTime.UtcNow.AddYears(1),
+            Status = status,
+            RenewalStatus = RenewalStatus.NotDue
+        };
+    }
+
+    [Fact]
+    public async Task DeletePolicy_AsOwner_DraftPolicy_Succeeds()
+    {
+        using var context = CreateInMemoryContext();
+        var service = new PolicyService(context);
+        var ownerId = Guid.NewGuid();
+        var policy = CreateTestPolicy(ownerId, PolicyStatus.Draft);
+        context.Policies.Add(policy);
+        await context.SaveChangesAsync();
+
+        var result = await service.DeleteAsync(policy.Id, ownerId, Role.Policyholder);
+
+        Assert.True(result);
+        var deleted = await context.Policies.FindAsync(policy.Id);
+        Assert.Null(deleted);
+    }
+
+    [Fact]
+    public async Task DeletePolicy_AsUnderwriter_DraftPolicy_Succeeds()
+    {
+        using var context = CreateInMemoryContext();
+        var service = new PolicyService(context);
+        var ownerId = Guid.NewGuid();
+        var underwriterId = Guid.NewGuid();
+        var policy = CreateTestPolicy(ownerId, PolicyStatus.Draft);
+        context.Policies.Add(policy);
+        await context.SaveChangesAsync();
+
+        var result = await service.DeleteAsync(policy.Id, underwriterId, Role.Underwriter);
+
+        Assert.True(result);
+        var deleted = await context.Policies.FindAsync(policy.Id);
+        Assert.Null(deleted);
+    }
+
+    [Fact]
+    public async Task DeletePolicy_AsAdmin_DraftPolicy_Succeeds()
+    {
+        using var context = CreateInMemoryContext();
+        var service = new PolicyService(context);
+        var ownerId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var policy = CreateTestPolicy(ownerId, PolicyStatus.Draft);
+        context.Policies.Add(policy);
+        await context.SaveChangesAsync();
+
+        var result = await service.DeleteAsync(policy.Id, adminId, Role.Admin);
+
+        Assert.True(result);
+        var deleted = await context.Policies.FindAsync(policy.Id);
+        Assert.Null(deleted);
+    }
+
+    [Fact]
+    public async Task DeletePolicy_AsClaimsAdjuster_ThrowsUnauthorized()
+    {
+        using var context = CreateInMemoryContext();
+        var service = new PolicyService(context);
+        var ownerId = Guid.NewGuid();
+        var adjusterId = Guid.NewGuid();
+        var policy = CreateTestPolicy(ownerId, PolicyStatus.Draft);
+        context.Policies.Add(policy);
+        await context.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.DeleteAsync(policy.Id, adjusterId, Role.ClaimsAdjuster));
+    }
+
+    [Fact]
+    public async Task DeletePolicy_AsNonOwnerPolicyholder_ThrowsUnauthorized()
+    {
+        using var context = CreateInMemoryContext();
+        var service = new PolicyService(context);
+        var ownerId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var policy = CreateTestPolicy(ownerId, PolicyStatus.Draft);
+        context.Policies.Add(policy);
+        await context.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.DeleteAsync(policy.Id, otherUserId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task DeletePolicy_NonDraft_ThrowsInvalidOperationException()
+    {
+        using var context = CreateInMemoryContext();
+        var service = new PolicyService(context);
+        var ownerId = Guid.NewGuid();
+        var policy = CreateTestPolicy(ownerId, PolicyStatus.Active);
+        context.Policies.Add(policy);
+        await context.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DeleteAsync(policy.Id, ownerId, Role.Policyholder));
+    }
+
+    [Fact]
+    public async Task DeletePolicy_WithExistingClaims_ThrowsConflictException()
+    {
+        using var context = CreateInMemoryContext();
+        var service = new PolicyService(context);
+        var ownerId = Guid.NewGuid();
+        var policy = CreateTestPolicy(ownerId, PolicyStatus.Draft);
+        context.Policies.Add(policy);
+
+        // Add referencing claim
+        var claim = new Claim
+        {
+            Id = Guid.NewGuid(),
+            PolicyId = policy.Id,
+            PolicyHolderId = ownerId,
+            ClaimNumber = "CLM-TEST-9999",
+            ClaimType = ClaimType.Auto,
+            Description = "Test damage",
+            ClaimedAmount = 2500m,
+            IncidentDate = DateTime.UtcNow.AddDays(-5),
+            IncidentLocation = "Test St",
+            Status = ClaimStatus.Draft
+        };
+        context.Claims.Add(claim);
+        await context.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.DeleteAsync(policy.Id, ownerId, Role.Policyholder));
     }
 }

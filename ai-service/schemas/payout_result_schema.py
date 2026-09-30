@@ -22,6 +22,10 @@ class PayoutValidationRequest(BaseModel):
     coverage_limit: float = Field(..., ge=0, description="Maximum coverage limit")
     deductible: float = Field(..., ge=0, description="Deductible amount")
     proposed_payout: float = Field(..., ge=0, description="Proposed payout amount")
+    eligible_amount: Optional[float] = Field(default=None, ge=0, description="Eligible approved claim amount")
+    deductible_type: Optional[str] = Field(default="Percentage", description="Deductible type: Percentage or Fixed")
+    deductible_percentage: Optional[float] = Field(default=None, ge=0, description="Deductible percentage where applicable")
+    final_payout: Optional[float] = Field(default=None, ge=0, description="Final calculated payout amount")
 
 
 class PayoutValidationResult(BaseModel):
@@ -58,4 +62,7 @@ class PayoutProposal(BaseModel):
     deductible: float
     eligible_amount: float
     proposed_payout: float
+    deductible_type: Optional[str] = "Percentage"
+    deductible_percentage: Optional[float] = None
+    final_payout: Optional[float] = None
     validation_result: Optional[PayoutValidationResult] = None

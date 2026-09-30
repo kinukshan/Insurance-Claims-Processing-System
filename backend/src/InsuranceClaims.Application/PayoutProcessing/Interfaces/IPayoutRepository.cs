@@ -12,7 +12,10 @@ public interface IPayoutRepository
     Task<List<Payout>> GetAllAsync();
     Task<(List<Payout> Items, int TotalCount)> GetPagedAsync(
         int page, int pageSize, PayoutStatus? statusFilter, string? sortBy, bool sortDescending);
+    Task<(List<Payout> Items, int TotalCount)> GetPagedByPolicyholderAsync(
+        Guid policyholderId, int page, int pageSize, PayoutStatus? statusFilter, string? sortBy, bool sortDescending);
     Task<Payout> AddAsync(Payout payout);
     Task UpdateAsync(Payout payout);
     Task DeleteAsync(Payout payout);
+    Task<string?> GetPolicyholderEmailAsync(Guid policyholderId) => Task.FromResult<string?>(null);
 }

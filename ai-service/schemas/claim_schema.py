@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Union
 from datetime import date, datetime
 from uuid import UUID
 
@@ -15,6 +15,11 @@ class DocumentData(BaseModel):
     file_name: str = Field(..., description="Original file name")
     uploaded_at: Optional[str] = Field(None, description="Upload date (YYYY-MM-DD)")
     verification_status: Optional[str] = Field("Pending", description="Current verification status")
+    file_url: Optional[str] = Field(None, description="Relative URL / storage path of the document")
+    content_type: Optional[str] = Field(None, description="MIME content type")
+    file_size: Optional[int] = Field(None, description="File size in bytes")
+    file_hash: Optional[str] = Field(None, description="SHA-256 hash of file contents")
+    extracted_text: Optional[str] = Field(None, description="Extracted textual content for verification")
 
 
 class DocumentVerificationRequest(BaseModel):
@@ -36,3 +41,6 @@ class ClaimData(BaseModel):
     description: str = Field("", description="Claim description")
     incident_date: datetime = Field(..., description="Date of the incident")
     incident_location: str = Field("", description="Location where incident occurred")
+    claim_type: Optional[str] = Field("Motor", description="Type of claim (Motor, Home, Health, Life, etc.)")
+    documents: list[DocumentData] = Field(default_factory=list, description="Documents attached to the claim")
+    document_flags: list[Union[dict, str]] = Field(default_factory=list, description="Deterministic document verification flags")

@@ -9,5 +9,10 @@ public enum FraudFlagType
     HighAmount = 1,
     InconsistentData = 2,
     SuspiciousPattern = 3,
-    FrequentClaims = 4
+    FrequentClaims = 4,
+    DocumentTypeMismatch = 5,
+    DocumentUnreadable = 6,
+    DuplicateDocumentReused = 7,
+    DocumentContentInconsistent = 8,
+    DocumentVerificationFailed = 9
 }

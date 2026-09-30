@@ -3,12 +3,26 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import PolicyCard from '../../components/policy/PolicyCard'
-import PolicyStatusBadge from '../../components/policy/PolicyStatusBadge'
-import { getPolicies } from '../../services/policyService'
+import { getPolicies, deletePolicy } from '../../services/policyService'
+import { useAuth } from '../../context/AuthContext'
+
+function useOptionalAuth() {
+  try {
+    const auth = useAuth()
+    return {
+      role: auth.role || auth.user?.role || null,
+      user: auth.user || null,
+    }
+  } catch {
+    return { role: null, user: null }
+  }
+}
 
 const STATUS_OPTIONS = ['All', 'Draft', 'Active', 'Expired', 'Lapsed', 'Cancelled']
 
 function PolicyList({ onSelectPolicy, onCreatePolicy }) {
+  const { user, role } = useOptionalAuth()
+  const isPolicyholder = role === 'Policyholder' || user?.role === 'Policyholder'
   const [policies, setPolicies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -28,6 +42,21 @@ function PolicyList({ onSelectPolicy, onCreatePolicy }) {
     }
   }, [])
 
+  const handleDeletePolicy = async (policy) => {
+    try {
+      await deletePolicy(policy.id)
+      await fetchPolicies()
+    } catch (err) {
+      if (err.status === 403 || err.message?.includes('permission')) {
+        setError('You do not have permission to delete this item.')
+      } else if (err.status === 409 || err.message?.includes('claims already exist') || err.message?.includes('referenced')) {
+        setError(err.message || 'This policy cannot be deleted because claims already exist.')
+      } else {
+        setError(err.message || 'Unable to delete the item. Please try again.')
+      }
+    }
+  }
+
   useEffect(() => {
     fetchPolicies()
   }, [fetchPolicies])
@@ -43,7 +72,7 @@ function PolicyList({ onSelectPolicy, onCreatePolicy }) {
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ margin: 0 }}>Policies</h2>
+        <h2 style={{ margin: 0 }}>{isPolicyholder ? 'My Policies' : 'Policies'}</h2>
         {onCreatePolicy && (
           <button
             onClick={onCreatePolicy}
@@ -148,7 +177,13 @@ function PolicyList({ onSelectPolicy, onCreatePolicy }) {
       {/* Policy List */}
       {!loading &&
         filteredPolicies.map((policy) => (
-          <PolicyCard key={policy.id} policy={policy} onSelect={onSelectPolicy} />
+          <PolicyCard
+            key={policy.id}
+            policy={policy}
+            onSelect={onSelectPolicy}
+            currentUser={user}
+            onDelete={handleDeletePolicy}
+          />
         ))}
 
       {/* Summary */}

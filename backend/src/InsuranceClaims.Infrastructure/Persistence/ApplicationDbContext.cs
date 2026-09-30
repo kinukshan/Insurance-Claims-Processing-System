@@ -5,6 +5,7 @@ using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.RiskAssessment;
 using InsuranceClaims.Domain.PayoutProcessing;
 using InsuranceClaims.Domain.AgentWorkflows;
+using InsuranceClaims.Domain.Notifications;
 using InsuranceClaims.Domain.Common;
 
 namespace InsuranceClaims.Infrastructure.Persistence;
@@ -39,12 +40,17 @@ public class ApplicationDbContext : DbContext
     // Payout Processing
     public DbSet<Payout> Payouts => Set<Payout>();
     public DbSet<PayoutApproval> PayoutApprovals => Set<PayoutApproval>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<PaymentWebhookEvent> PaymentWebhookEvents => Set<PaymentWebhookEvent>();
 
     // Agent Workflows
     public DbSet<AgentWorkflow> AgentWorkflows => Set<AgentWorkflow>();
     public DbSet<AgentWorkflowStep> AgentWorkflowSteps => Set<AgentWorkflowStep>();
     public DbSet<AgentExecutionLog> AgentExecutionLogs => Set<AgentExecutionLog>();
     public DbSet<ApprovalDecision> ApprovalDecisions => Set<ApprovalDecision>();
+
+    // Notifications
+    public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,12 +79,17 @@ public class ApplicationDbContext : DbContext
         {
             if (entry.State == EntityState.Added)
             {
-                entry.Entity.CreatedAt = DateTime.UtcNow;
-                entry.Entity.UpdatedAt = DateTime.UtcNow;
+                if (entry.Entity.CreatedAt == default)
+                    entry.Entity.CreatedAt = DateTime.UtcNow;
+                if (entry.Entity.UpdatedAt == default)
+                    entry.Entity.UpdatedAt = DateTime.UtcNow;
             }
             else if (entry.State == EntityState.Modified)
             {
-                entry.Entity.UpdatedAt = DateTime.UtcNow;
+                if (!entry.Property(e => e.UpdatedAt).IsModified)
+                {
+                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+                }
             }
         }
     }

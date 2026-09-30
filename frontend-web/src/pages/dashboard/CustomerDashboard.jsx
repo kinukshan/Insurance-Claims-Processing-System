@@ -45,6 +45,15 @@ function CustomerDashboard() {
             <Link to="/payouts" className="btn btn--primary">View Payouts</Link>
           </div>
         </div>
+
+        <div className="dashboard-card">
+          <div className="dashboard-card-icon">🔔</div>
+          <h3>Notifications</h3>
+          <p>View your notification history and stay informed about claim updates, policy changes and payout statuses.</p>
+          <div className="dashboard-card-actions">
+            <Link to="/notifications" className="btn btn--secondary">View Notifications</Link>
+          </div>
+        </div>
       </div>
     </div>
   )

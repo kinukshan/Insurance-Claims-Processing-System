@@ -46,4 +46,7 @@ public record PayoutContext
 
     /// <summary>Deductible amount (from Policy module).</summary>
     public required decimal Deductible { get; init; }
+
+    /// <summary>Deductible percentage (from Policy module, if percentage-based).</summary>
+    public decimal? DeductiblePercentage { get; init; }
 }

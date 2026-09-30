@@ -34,6 +34,10 @@ public class PayoutConfiguration : IEntityTypeConfiguration<Payout>
         builder.Property(p => p.Deductible)
             .HasPrecision(18, 2);
 
+        builder.Property(p => p.DeductiblePercentage)
+            .HasPrecision(5, 2)
+            .IsRequired(false);
+
         builder.Property(p => p.ProposedPayout)
             .HasPrecision(18, 2);
 

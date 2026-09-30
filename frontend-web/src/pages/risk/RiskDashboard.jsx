@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react'
 import RiskScoreBadge from '../../components/risk/RiskScoreBadge'
-import { getFlaggedClaims } from '../../services/riskService'
+import { getAllAssessments } from '../../services/riskService'
 import './risk.css'
 
 function RiskDashboard() {
@@ -20,7 +20,7 @@ function RiskDashboard() {
     setLoading(true)
     setError(null)
     try {
-      const data = await getFlaggedClaims()
+      const data = await getAllAssessments()
       setAssessments(data || [])
     } catch (err) {
       setError(err.message || 'Failed to load risk data')
@@ -39,7 +39,9 @@ function RiskDashboard() {
 
   // ── Filtered list ─────────────────────────────────────────
   const filtered = assessments.filter(a =>
-    !searchTerm || a.claimId?.toLowerCase().includes(searchTerm.toLowerCase())
+    !searchTerm ||
+    a.claimId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    a.claimNumber?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   if (loading) {
@@ -111,7 +113,7 @@ function RiskDashboard() {
           <table className="risk-table" id="assessments-table">
             <thead>
               <tr>
-                <th>Claim ID</th>
+                <th>Claim</th>
                 <th>Risk Score</th>
                 <th>Level</th>
                 <th>Recommendation</th>
@@ -123,7 +125,9 @@ function RiskDashboard() {
             <tbody>
               {filtered.map((a) => (
                 <tr key={a.id}>
-                  <td title={a.claimId}>{a.claimId?.substring(0, 8)}...</td>
+                  <td title={a.claimId}>
+                    {a.claimNumber ? <strong>{a.claimNumber}</strong> : `${a.claimId?.substring(0, 8)}...`}
+                  </td>
                   <td><RiskScoreBadge score={a.riskScore} level={a.riskLevelDisplay} /></td>
                   <td>{a.riskLevelDisplay}</td>
                   <td>

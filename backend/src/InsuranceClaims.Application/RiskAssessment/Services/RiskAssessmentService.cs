@@ -1,3 +1,5 @@
+using InsuranceClaims.Application.ClaimsManagement.Interfaces;
+using InsuranceClaims.Application.ClaimsManagement.Services;
 using InsuranceClaims.Application.RiskAssessment.DTOs;
 using InsuranceClaims.Application.RiskAssessment.Interfaces;
 using InsuranceClaims.Domain.ClaimsManagement;
@@ -15,6 +17,7 @@ public class RiskAssessmentService : IRiskAssessmentService
 {
     private readonly IRiskAssessmentRepository _repository;
     private readonly IAiRiskClient _aiClient;
+    private readonly IDocumentStorageService? _storageService;
 
     // ── Risk thresholds ──────────────────────────────────────────
     private const decimal LowThreshold = 30m;
@@ -25,10 +28,12 @@ public class RiskAssessmentService : IRiskAssessmentService
 
     public RiskAssessmentService(
         IRiskAssessmentRepository repository,
-        IAiRiskClient aiClient)
+        IAiRiskClient aiClient,
+        IDocumentStorageService? storageService = null)
     {
         _repository = repository;
         _aiClient = aiClient;
+        _storageService = storageService;
     }
 
     /// <inheritdoc />
@@ -88,54 +93,104 @@ public class RiskAssessmentService : IRiskAssessmentService
             ruleScore += 20m;
         }
 
-        // 3. Optionally call AI agent
-        decimal aiScore = 0m;
-        var aiFlags = new List<FraudFlag>();
+        // Rule: Document integrity and consistency validation
+        if (claim.Documents != null && claim.Documents.Count > 0)
+        {
+            var fileBytesMap = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+            if (_storageService != null)
+            {
+                foreach (var doc in claim.Documents)
+                {
+                    if (!string.IsNullOrWhiteSpace(doc.FileUrl))
+                    {
+                        try
+                        {
+                            fileBytesMap[doc.FileUrl] = await _storageService.GetFileBytesAsync(doc.FileUrl);
+                        }
+                        catch
+                        {
+                            fileBytesMap[doc.FileUrl] = null;
+                        }
+                    }
+                }
+            }
 
+            var docEval = DocumentIntegrityValidator.EvaluateClaimDocuments(
+                claim.ClaimType.ToString(),
+                claim.Documents,
+                url => fileBytesMap.TryGetValue(url, out var b) ? b : null
+            );
+
+            foreach (var finding in docEval.Findings)
+            {
+                ruleFlags.Add(CreateFlag(
+                    claimId,
+                    finding.FlagType,
+                    finding.Description,
+                    finding.Severity,
+                    FlagSource.Rule
+                ));
+
+                switch (finding.FlagType)
+                {
+                    case FraudFlagType.DocumentTypeMismatch:
+                        ruleScore += 40m;
+                        break;
+                    case FraudFlagType.DuplicateDocumentReused:
+                        ruleScore += 25m;
+                        break;
+                    case FraudFlagType.DocumentUnreadable:
+                        ruleScore += 20m;
+                        break;
+                    case FraudFlagType.DocumentContentInconsistent:
+                        ruleScore += 20m;
+                        break;
+                    case FraudFlagType.DocumentVerificationFailed:
+                        ruleScore += 15m;
+                        break;
+                }
+            }
+        }
+
+        // 3. Deterministic rules are authoritative for all risk decisions
+        decimal finalScore = Math.Clamp(ruleScore, 0m, 100m);
+        var riskLevel = ClassifyRiskLevel(finalScore);
+
+        var hasCriticalIssues = finalScore >= MediumThreshold
+            || ruleFlags.Any(f => f.FlagType is FraudFlagType.DocumentTypeMismatch
+                or FraudFlagType.DuplicateDocumentReused
+                or FraudFlagType.DocumentUnreadable);
+
+        var recommendation = (finalScore >= AutoEscalateThreshold || hasCriticalIssues)
+            ? RiskRecommendation.Escalate
+            : RiskRecommendation.Proceed;
+
+        // 4. Optionally call AI agent for explanatory reasoning only (does NOT modify score, flags, or recommendation)
+        AiRiskResult? aiResult = null;
         if (request.IncludeAiAnalysis)
         {
-            var aiResult = await _aiClient.AnalyzeClaimAsync(new AiRiskRequest
+            aiResult = await _aiClient.AnalyzeClaimAsync(new AiRiskRequest
             {
                 ClaimId = claimId,
                 PolicyHolderId = claim.PolicyHolderId,
                 ClaimAmount = claim.ClaimedAmount,
                 Description = claim.Description,
                 IncidentDate = claim.IncidentDate,
-                IncidentLocation = claim.IncidentLocation
+                IncidentLocation = claim.IncidentLocation,
+                ClaimType = claim.ClaimType.ToString(),
+                DocumentFlags = ruleFlags
+                    .Where(f => f.FlagType is FraudFlagType.DocumentTypeMismatch
+                        or FraudFlagType.DocumentUnreadable
+                        or FraudFlagType.DuplicateDocumentReused
+                        or FraudFlagType.DocumentContentInconsistent
+                        or FraudFlagType.DocumentVerificationFailed)
+                    .Select(f => $"{f.FlagType}: {f.Description}")
+                    .ToList()
             });
-
-            if (aiResult != null)
-            {
-                aiScore = Math.Clamp(aiResult.RiskScore, 0m, 100m);
-
-                foreach (var flag in aiResult.Flags)
-                {
-                    var flagType = ParseFlagType(flag.FlagType);
-                    var severity = ParseSeverity(flag.Severity);
-
-                    aiFlags.Add(CreateFlag(claimId, flagType, flag.Description, severity, FlagSource.AI));
-                }
-            }
         }
 
-        // 4. Merge scores: weighted average (rules 60%, AI 40%) if AI was used
-        decimal finalScore;
-        if (request.IncludeAiAnalysis && aiScore > 0)
-        {
-            finalScore = Math.Clamp(ruleScore * 0.6m + aiScore * 0.4m, 0m, 100m);
-        }
-        else
-        {
-            finalScore = Math.Clamp(ruleScore, 0m, 100m);
-        }
-
-        var riskLevel = ClassifyRiskLevel(finalScore);
-        var recommendation = finalScore >= AutoEscalateThreshold
-            ? RiskRecommendation.Escalate
-            : RiskRecommendation.Proceed;
-
-        // 5. Create the assessment entity
-        var allFlags = ruleFlags.Concat(aiFlags).ToList();
+        // 5. Create the assessment entity (using deterministic flags)
+        var allFlags = ruleFlags;
 
         var assessment = new Domain.RiskAssessment.RiskAssessment
         {
@@ -144,9 +199,9 @@ public class RiskAssessmentService : IRiskAssessmentService
             RiskScore = finalScore,
             RiskLevel = riskLevel,
             Recommendation = recommendation,
-            AssessorType = request.IncludeAiAnalysis ? AssessorType.AI : AssessorType.System,
+            AssessorType = request.IncludeAiAnalysis && aiResult != null ? AssessorType.AI : AssessorType.System,
             AssessmentTimestamp = DateTime.UtcNow,
-            Summary = BuildSummary(finalScore, riskLevel, recommendation, allFlags.Count, request.Notes)
+            Summary = BuildSummary(finalScore, riskLevel, recommendation, allFlags.Count, request.Notes, aiResult?.ReasoningSummary)
         };
 
         // Link flags to the assessment
@@ -179,21 +234,73 @@ public class RiskAssessmentService : IRiskAssessmentService
 
         await _repository.SaveChangesAsync();
 
-        return RiskAssessmentDto.FromEntity(assessment);
+        var dto = RiskAssessmentDto.FromEntity(assessment);
+        dto.ClaimNumber = claim.ClaimNumber;
+        if (aiResult != null)
+        {
+            dto.AiUsed = aiResult.AiUsed;
+            dto.AiProvider = aiResult.AiProvider;
+            dto.AiModel = aiResult.AiModel;
+            dto.ReasoningSummary = aiResult.ReasoningSummary;
+            dto.FallbackUsed = aiResult.FallbackUsed;
+        }
+        else if (request.IncludeAiAnalysis)
+        {
+            dto.FallbackUsed = true;
+        }
+
+        return dto;
     }
 
     /// <inheritdoc />
     public async Task<RiskAssessmentDto?> GetAssessmentAsync(Guid claimId)
     {
         var assessment = await _repository.GetByClaimIdAsync(claimId);
-        return assessment != null ? RiskAssessmentDto.FromEntity(assessment) : null;
+        if (assessment == null) return null;
+
+        var dto = RiskAssessmentDto.FromEntity(assessment);
+        var claim = await _repository.GetClaimByIdAsync(claimId);
+        if (claim != null)
+        {
+            dto.ClaimNumber = claim.ClaimNumber;
+        }
+        return dto;
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<RiskAssessmentDto>> GetFlaggedClaimsAsync()
     {
         var flagged = await _repository.GetFlaggedAsync();
-        return flagged.Select(RiskAssessmentDto.FromEntity).ToList();
+        var dtos = new List<RiskAssessmentDto>(flagged.Count);
+        foreach (var f in flagged)
+        {
+            var dto = RiskAssessmentDto.FromEntity(f);
+            var claim = await _repository.GetClaimByIdAsync(f.ClaimId);
+            if (claim != null)
+            {
+                dto.ClaimNumber = claim.ClaimNumber;
+            }
+            dtos.Add(dto);
+        }
+        return dtos;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<RiskAssessmentDto>> GetAllAssessmentsAsync()
+    {
+        var assessments = await _repository.GetAllAsync();
+        var dtos = new List<RiskAssessmentDto>(assessments.Count);
+        foreach (var a in assessments)
+        {
+            var dto = RiskAssessmentDto.FromEntity(a);
+            var claim = await _repository.GetClaimByIdAsync(a.ClaimId);
+            if (claim != null)
+            {
+                dto.ClaimNumber = claim.ClaimNumber;
+            }
+            dtos.Add(dto);
+        }
+        return dtos;
     }
 
     /// <inheritdoc />
@@ -367,12 +474,17 @@ public class RiskAssessmentService : IRiskAssessmentService
         RiskLevel level,
         RiskRecommendation recommendation,
         int flagCount,
-        string? notes)
+        string? notes,
+        string? reasoningSummary = null)
     {
         var summary = $"Risk Score: {score:N1}/100 | Level: {level} | Recommendation: {recommendation} | Flags: {flagCount}";
         if (!string.IsNullOrWhiteSpace(notes))
         {
             summary += $" | Notes: {notes}";
+        }
+        if (!string.IsNullOrWhiteSpace(reasoningSummary))
+        {
+            summary += $" | AI Context: {reasoningSummary}";
         }
         return summary;
     }
