@@ -8,12 +8,19 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// CORS for React dev server
+// CORS for local development and deployed frontend
+var configuredOrigins = builder.Configuration["Cors:AllowedOrigins"];
+
+var allowedOrigins = string.IsNullOrWhiteSpace(configuredOrigins)
+    ? new[] { "http://localhost:5173", "http://localhost:3000" }
+    : configuredOrigins
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
