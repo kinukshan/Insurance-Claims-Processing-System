@@ -17,7 +17,7 @@ void main() {
       expect(find.text('Incident Location'), findsOneWidget);
       expect(find.text('Description'), findsOneWidget);
       expect(
-        find.widgetWithText(TextFormField, 'Claimed Amount (\$)'),
+        find.widgetWithText(TextFormField, 'Claimed Amount (LKR)'),
         findsOneWidget,
       );
 
@@ -70,7 +70,7 @@ void main() {
       // Enter zero amount
       final amountField = find.widgetWithText(
         TextFormField,
-        'Claimed Amount (\$)',
+        'Claimed Amount (LKR)',
       );
       await tester.enterText(amountField, '0');
 

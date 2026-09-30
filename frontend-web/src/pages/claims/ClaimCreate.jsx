@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { createClaim, submitClaim } from '../../services/claimService';
 import { getPolicies } from '../../services/policyService';
-import { CLAIM_TYPES, getCompatibleClaimType } from '../../utils/policyClaimMapping';
+import { CLAIM_TYPES, getCompatibleClaimType, formatCurrency } from '../../utils/policyClaimMapping';
 
 function ClaimCreate({ onBack, onCreated }) {
   const { user } = useAuth();
@@ -254,7 +254,7 @@ function ClaimCreate({ onBack, onCreated }) {
             </option>
             {policies.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.policyNumber} — {p.policyTypeName || 'Policy'} (Coverage: ${Number(p.coverageLimit).toLocaleString()})
+                {p.policyNumber} — {p.policyTypeName || 'Policy'} (Coverage: {formatCurrency(p.coverageLimit)})
               </option>
             ))}
           </select>
@@ -327,7 +327,7 @@ function ClaimCreate({ onBack, onCreated }) {
 
         {/* Claimed Amount */}
         <div className="form-group" style={{ marginBottom: '16px' }}>
-          <label className="form-label">Claimed Amount ($) *</label>
+          <label className="form-label">Claimed Amount (LKR) *</label>
           <input
             type="number"
             name="claimedAmount"

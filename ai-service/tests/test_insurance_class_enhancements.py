@@ -209,3 +209,57 @@ class TestLifeDocumentChecklistAndAliases:
         auto_required = agent.REQUIRED_DOCUMENTS["Auto"]
         motor_required = agent.REQUIRED_DOCUMENTS["Motor"]
         assert auto_required == motor_required
+
+
+class TestPercentageDeductibleRules:
+    """Test suite for percentage deductible rules and coverage capping."""
+
+    @pytest.mark.parametrize(
+        "policy_type,claim_type,approved,limit,percentage,expected_ded,expected_payout",
+        [
+            ("Motor Insurance", "Motor", 20000.0, 100000.0, 5.0, 1000.0, 19000.0),
+            ("Health Insurance", "Health", 20000.0, 100000.0, 10.0, 2000.0, 18000.0),
+            ("Home Insurance", "Property", 20000.0, 100000.0, 10.0, 2000.0, 18000.0),
+            ("Life Insurance", "Life", 20000.0, 100000.0, 0.0, 0.0, 20000.0),
+        ],
+    )
+    def test_percentage_matrix(
+        self, policy_type, claim_type, approved, limit, percentage, expected_ded, expected_payout
+    ):
+        result = validate_deductible_correctness(
+            approved_claim_amount=approved,
+            coverage_limit=limit,
+            deductible=expected_ded,
+            proposed_payout=expected_payout,
+            policy_type=policy_type,
+            claim_type=claim_type,
+            deductible_percentage=percentage,
+        )
+        assert result is None
+
+    def test_coverage_capping_motor(self):
+        """Motor coverage limit: $50,000, Approved claim: $80,000 -> eligible: $50,000, ded: 5% = $2,500, payout: $47,500"""
+        result = validate_deductible_correctness(
+            approved_claim_amount=80000.0,
+            coverage_limit=50000.0,
+            deductible=2500.0,
+            proposed_payout=47500.0,
+            policy_type="Motor Insurance",
+            claim_type="Motor",
+            deductible_percentage=5.0,
+        )
+        assert result is None
+
+    def test_incorrect_percentage_deductible_detected(self):
+        """If proposed payout does not deduct the correct percentage, flag violation."""
+        result = validate_deductible_correctness(
+            approved_claim_amount=20000.0,
+            coverage_limit=100000.0,
+            deductible=1000.0,
+            proposed_payout=20000.0,  # Forgot to subtract deductible
+            policy_type="Motor Insurance",
+            claim_type="Motor",
+            deductible_percentage=5.0,
+        )
+        assert result is not None
+        assert "DEDUCTIBLE_ERROR" in result

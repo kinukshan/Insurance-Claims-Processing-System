@@ -266,3 +266,45 @@ describe('PolicyList Scoping and Role Headers', () => {
     })
   })
 })
+
+describe('PolicyCard Currency Presentation', () => {
+  it('formats premium and coverage correctly in LKR with 2 decimals without dollar symbols', () => {
+    const policy = {
+      id: 'pol-100',
+      policyNumber: 'POL-TEST-100',
+      status: 'Active',
+      policyTypeName: 'Motor Insurance',
+      premium: 275000,
+      coverageLimit: 100000,
+      startDate: '2026-01-01',
+      expiryDate: '2027-01-01',
+    }
+
+    const { container } = render(<PolicyCard policy={policy} />)
+
+    expect(screen.getByText('Premium: LKR 275,000.00')).toBeDefined()
+    expect(screen.getByText('Coverage: LKR 100,000.00')).toBeDefined()
+    expect(container.textContent).not.toMatch(/LKR\s*\$/)
+    expect(container.textContent).not.toMatch(/\$\d/)
+  })
+
+  it('safely handles and strips any legacy pre-formatted dollar values to prevent double symbols', () => {
+    const policyWithLegacyStrings = {
+      id: 'pol-200',
+      policyNumber: 'POL-TEST-200',
+      status: 'Active',
+      policyTypeName: 'Home Insurance',
+      premium: '$275,000',
+      coverageLimit: '$100,000',
+      startDate: '2026-01-01',
+      expiryDate: '2027-01-01',
+    }
+
+    const { container } = render(<PolicyCard policy={policyWithLegacyStrings} />)
+
+    expect(screen.getByText('Premium: LKR 275,000.00')).toBeDefined()
+    expect(screen.getByText('Coverage: LKR 100,000.00')).toBeDefined()
+    expect(container.textContent).not.toMatch(/LKR\s*\$/)
+    expect(container.textContent).not.toMatch(/\$\d/)
+  })
+})

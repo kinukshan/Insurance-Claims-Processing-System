@@ -3,6 +3,7 @@ import PolicyStatusBadge from '../../components/policy/PolicyStatusBadge'
 import CoverageTable from '../../components/policy/CoverageTable'
 import { getPolicyById, calculatePremium, renewPolicy, getCoverage } from '../../services/policyService'
 import { useAuth } from '../../context/AuthContext'
+import { formatCurrency } from '../../utils/policyClaimMapping'
 
 function useOptionalAuth() {
   try {
@@ -183,9 +184,9 @@ function PolicyDetails({ policyId, onBack, onEdit }) {
         <h3 style={{ marginTop: 0 }}>Policy Information</h3>
         {infoRow('Policy Type', policy.policyTypeName || 'N/A')}
         {infoRow('Policyholder ID', policy.policyholderId)}
-        {infoRow('Coverage Limit', `$${Number(policy.coverageLimit).toLocaleString()}`)}
-        {infoRow('Premium', `$${Number(policy.premium).toLocaleString()}`)}
-        {infoRow('Deductible', `$${Number(policy.deductible).toLocaleString()}`)}
+        {infoRow('Coverage Limit', formatCurrency(policy.coverageLimit))}
+        {infoRow('Premium', formatCurrency(policy.premium))}
+        {infoRow('Deductible', policy.deductiblePercentage != null ? `${policy.deductiblePercentage}%` : formatCurrency(policy.deductible))}
         {infoRow('Start Date', new Date(policy.startDate).toLocaleDateString())}
         {infoRow('Expiry Date', new Date(policy.expiryDate).toLocaleDateString())}
         {infoRow('Renewal Status', policy.renewalStatus)}
@@ -239,7 +240,7 @@ function PolicyDetails({ policyId, onBack, onEdit }) {
       {premiumResult && (
         <div style={{ backgroundColor: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
           <h4 style={{ marginTop: 0 }}>Premium Calculation</h4>
-          <p><strong>Calculated Premium:</strong> ${Number(premiumResult.calculatedPremium).toLocaleString()}</p>
+          <p><strong>Calculated Premium:</strong> {formatCurrency(premiumResult.calculatedPremium)}</p>
           <p style={{ fontSize: '0.85rem', color: '#6b7280' }}>{premiumResult.breakdown}</p>
         </div>
       )}

@@ -24,6 +24,8 @@ import {
 import {
   getPayoutByClaim,
 } from '../../services/payoutService';
+import PayoutBreakdown from '../../components/payout/PayoutBreakdown';
+import { formatCurrency } from '../../utils/policyClaimMapping';
 
 const DOCUMENT_TYPES = [
   'Police Report', 'Photos of Damage', 'Repair Estimate', 'Driver License',
@@ -273,12 +275,6 @@ function ClaimDetails() {
     return new Date(dateStr).toLocaleDateString('en-US', {
       year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency', currency: 'USD',
-    }).format(amount);
   };
 
   const getStatusClass = (status) => {
@@ -580,6 +576,30 @@ function ClaimDetails() {
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Existing Payout Proposal */}
+      {existingPayout && (
+        <div className="card" id="existing-payout-card" style={{ marginBottom: '2rem' }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0 }}>💰 Payout Proposal</h3>
+            <span className="status-badge" style={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}>
+              {existingPayout.statusDisplay || existingPayout.status}
+            </span>
+          </div>
+          <div style={{ padding: '1rem 1.25rem' }}>
+            <PayoutBreakdown payout={existingPayout} />
+            {isStaff && (
+              <button
+                className="btn btn--secondary btn--sm"
+                onClick={() => navigate(`/payouts/approval?payoutId=${existingPayout.id}`)}
+                style={{ marginTop: '8px' }}
+              >
+                Go to Payout Approval Desk →
+              </button>
+            )}
+          </div>
         </div>
       )}
 

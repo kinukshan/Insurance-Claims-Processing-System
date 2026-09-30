@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getAllClaims } from '../../services/claimService';
 import ClaimCreate from './ClaimCreate';
+import { formatCurrency } from '../../utils/policyClaimMapping';
 
 const STATUSES = [
   'Draft', 'Submitted', 'UnderReview', 'DocumentVerification',
@@ -70,12 +71,6 @@ function ClaimsList() {
     return new Date(dateStr).toLocaleDateString('en-US', {
       year: 'numeric', month: 'short', day: 'numeric',
     });
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency', currency: 'USD',
-    }).format(amount);
   };
 
   const getStatusClass = (status) => {

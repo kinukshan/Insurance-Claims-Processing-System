@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react'
 import { createPolicy, getPolicyTypes } from '../../services/policyService'
 import { useAuth } from '../../context/AuthContext'
-import { getFixedDeductible, formatDeductible } from '../../utils/policyClaimMapping'
+import { getDeductiblePercentage, getFixedDeductible, formatDeductible } from '../../utils/policyClaimMapping'
 
 function PolicyCreate({ onBack, onCreated }) {
   const { user, role } = useAuth()
@@ -68,6 +68,17 @@ function PolicyCreate({ onBack, onCreated }) {
   const selectedType = policyTypes.find((pt) => pt.id === formData.policyTypeId)
   const isLifeSelected = selectedType?.id === '22222222-2222-4222-8222-222222222224' || selectedType?.name === 'Life Insurance'
 
+  const resolveDeductiblePercentage = (type) => {
+    if (!type) return null
+    if (type.defaultDeductiblePercentage !== undefined && type.defaultDeductiblePercentage !== null) {
+      return Number(type.defaultDeductiblePercentage)
+    }
+    const fromMapping = getDeductiblePercentage(type.name)
+    if (fromMapping !== null && fromMapping !== undefined) return fromMapping
+    if (type.id === '22222222-2222-4222-8222-222222222224' || type.name === 'Life Insurance') return 0
+    return null
+  }
+
   const resolveFixedDeductible = (type) => {
     if (!type) return null
     const fromMapping = getFixedDeductible(type.name)
@@ -77,11 +88,13 @@ function PolicyCreate({ onBack, onCreated }) {
     return 0
   }
 
+  const percentageRate = resolveDeductiblePercentage(selectedType)
   const fixedDeductibleAmount = resolveFixedDeductible(selectedType)
 
   const handlePolicyTypeChange = (e) => {
     const selectedTypeId = e.target.value
     const selected = policyTypes.find((pt) => pt.id === selectedTypeId)
+    const pct = resolveDeductiblePercentage(selected)
     const fixedAmount = resolveFixedDeductible(selected)
 
     setFormData((prev) => ({
@@ -89,7 +102,7 @@ function PolicyCreate({ onBack, onCreated }) {
       policyTypeId: selectedTypeId,
       // Autofill defaults if empty
       coverageLimit: selected?.defaultCoverageLimit != null ? String(selected.defaultCoverageLimit) : prev.coverageLimit,
-      deductible: fixedAmount != null ? String(fixedAmount) : '',
+      deductible: pct != null ? `${pct}%` : (fixedAmount != null ? String(fixedAmount) : ''),
     }))
 
     if (errors.policyTypeId) {
@@ -155,6 +168,7 @@ function PolicyCreate({ onBack, onCreated }) {
         policyTypeId: formData.policyTypeId.trim(),
         coverageLimit: Number(formData.coverageLimit),
         deductible: fixedDeductibleAmount != null ? fixedDeductibleAmount : 0,
+        deductiblePercentage: percentageRate != null ? percentageRate : null,
         startDate: new Date(formData.startDate).toISOString(),
         expiryDate: new Date(formData.expiryDate).toISOString(),
         exclusions: formData.exclusions || null,
@@ -200,6 +214,15 @@ function PolicyCreate({ onBack, onCreated }) {
     return pt.name
   }
 
+  const getTypeOptionLabel = (pt) => {
+    const baseName = getDisplayName(pt)
+    const pct = resolveDeductiblePercentage(pt)
+    if (pct != null) {
+      return `${baseName} — ${pct}% deductible`
+    }
+    return `${baseName} ${pt.description ? `— ${pt.description}` : ''}`
+  }
+
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
       <button
@@ -212,7 +235,7 @@ function PolicyCreate({ onBack, onCreated }) {
 
       {success && (
         <div id="policy-create-success" style={{ padding: '12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#16a34a', marginBottom: '16px' }}>
-          Policy created successfully! {createdPolicy && `Policy Number: ${createdPolicy.policyNumber}. Confirmed Deductible: ${formatDeductible(createdPolicy.deductible)}.`}
+          Policy created successfully! {createdPolicy && `Policy Number: ${createdPolicy.policyNumber}. Confirmed Deductible: ${createdPolicy.deductiblePercentage != null ? `${createdPolicy.deductiblePercentage}%` : formatDeductible(createdPolicy.deductible)}.`}
         </div>
       )}
 
@@ -272,7 +295,7 @@ function PolicyCreate({ onBack, onCreated }) {
               <optgroup label="General Insurance">
                 {generalPolicies.map((pt) => (
                   <option key={pt.id} value={pt.id}>
-                    {getDisplayName(pt)} {pt.description ? `— ${pt.description}` : ''}
+                    {getTypeOptionLabel(pt)}
                   </option>
                 ))}
               </optgroup>
@@ -281,7 +304,7 @@ function PolicyCreate({ onBack, onCreated }) {
               <optgroup label="Long-Term Insurance">
                 {longTermPolicies.map((pt) => (
                   <option key={pt.id} value={pt.id}>
-                    {getDisplayName(pt)} {pt.description ? `— ${pt.description}` : ''}
+                    {getTypeOptionLabel(pt)}
                   </option>
                 ))}
               </optgroup>
@@ -290,7 +313,7 @@ function PolicyCreate({ onBack, onCreated }) {
               <optgroup label="Unclassified">
                 {unclassifiedPolicies.map((pt) => (
                   <option key={pt.id} value={pt.id}>
-                    {getDisplayName(pt)} {pt.description ? `— ${pt.description}` : ''}
+                    {getTypeOptionLabel(pt)}
                   </option>
                 ))}
               </optgroup>
@@ -301,7 +324,7 @@ function PolicyCreate({ onBack, onCreated }) {
 
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Coverage Limit ($) *</label>
+            <label style={labelStyle}>Coverage Limit (LKR) *</label>
             <input
               type="number"
               name="coverageLimit"
@@ -315,23 +338,27 @@ function PolicyCreate({ onBack, onCreated }) {
             {errors.coverageLimit && <div style={fieldErrorStyle}>{errors.coverageLimit}</div>}
           </div>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle} htmlFor="policy-deductible">Deductible ($)</label>
+            <label style={labelStyle} htmlFor="policy-deductible">
+              {percentageRate != null ? 'Deductible (%)' : 'Deductible (LKR)'}
+            </label>
             <input
               id="policy-deductible"
               type="text"
               name="deductible"
-              value={selectedType ? formatDeductible(fixedDeductibleAmount) : ''}
+              value={selectedType ? (percentageRate != null ? `${percentageRate}%` : formatDeductible(fixedDeductibleAmount)) : ''}
               readOnly
               disabled
               placeholder="1000"
               style={{ ...fieldStyle, backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
             />
             <div style={{ color: '#4b5563', fontSize: '0.8rem', marginTop: '4px' }}>
-              The deductible is fixed according to your selected insurance type and will be deducted from eligible claim payouts.
+              {percentageRate != null
+                ? `Standard percentage deductible (${percentageRate}%) calculated on eligible approved claim amount.`
+                : 'The deductible is fixed according to your selected insurance type and will be deducted from eligible claim payouts.'}
             </div>
             {isLifeSelected && (
               <div style={{ color: '#059669', fontSize: '0.8rem', marginTop: '4px' }}>
-                Project rule: Life Insurance deductible is $0.
+                Project rule: Life Insurance deductible is 0%.
               </div>
             )}
             {errors.deductible && <div style={fieldErrorStyle}>{errors.deductible}</div>}

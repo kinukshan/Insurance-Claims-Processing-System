@@ -26,6 +26,11 @@ public class PolicyType : BaseEntity
     public decimal DefaultDeductible { get; set; }
 
     /// <summary>
+    /// Default deductible percentage for this policy type (e.g. 5.00 for Motor, 10.00 for Health/Home, 0.00 for Life).
+    /// </summary>
+    public decimal? DefaultDeductiblePercentage { get; set; }
+
+    /// <summary>
     /// Risk multiplier applied during premium calculation.
     /// </summary>
     public decimal RiskMultiplier { get; set; } = 1.0m;

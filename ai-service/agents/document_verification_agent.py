@@ -95,7 +95,7 @@ class DocumentVerificationAgent:
                     inc_summary = "; ".join(f"{i.field}: {i.description}" for i in inconsistencies) if inconsistencies else "None"
                     prompt = (
                         f"Claim Type: {request.claim_type}\n"
-                        f"Claimed Amount: ${request.claimed_amount:,.2f}\n"
+                        f"Claimed Amount: LKR {request.claimed_amount:,.2f}\n"
                         f"Incident Date: {request.incident_date}\n"
                         f"Submitted Documents: {', '.join(d.document_type for d in request.documents) if request.documents else 'None'}\n"
                         f"Checklist Status: {'Complete' if is_complete else 'Incomplete'}\n"
@@ -276,7 +276,7 @@ class DocumentVerificationAgent:
             inconsistencies.append(
                 DocumentInconsistency(
                     field="claimed_amount",
-                    description=f"Very high claimed amount: ${request.claimed_amount:,.2f}",
+                    description=f"Very high claimed amount: LKR {request.claimed_amount:,.2f}",
                     severity="warning",
                 )
             )

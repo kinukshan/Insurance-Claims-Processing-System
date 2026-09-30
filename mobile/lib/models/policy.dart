@@ -8,6 +8,7 @@ class Policy {
   final double coverageLimit;
   final double premium;
   final double deductible;
+  final double? deductiblePercentage;
   final DateTime startDate;
   final DateTime expiryDate;
   final String status;
@@ -28,6 +29,7 @@ class Policy {
     required this.coverageLimit,
     required this.premium,
     required this.deductible,
+    this.deductiblePercentage,
     required this.startDate,
     required this.expiryDate,
     required this.status,
@@ -40,20 +42,33 @@ class Policy {
     required this.updatedAt,
   });
 
+  String get formattedDeductible {
+    if (deductiblePercentage != null) {
+      final isInt = deductiblePercentage! % 1 == 0;
+      return '${deductiblePercentage!.toStringAsFixed(isInt ? 0 : 2)}% deductible';
+    }
+    return 'LKR ${deductible.toStringAsFixed(2)}';
+  }
+
   factory Policy.fromJson(Map<String, dynamic> json) {
     return Policy(
       id: json['id'] as String,
       policyNumber: json['policyNumber'] as String,
-      policyholderId: json['policyholderId'] as String,
-      policyTypeId: json['policyTypeId'] as String,
+      policyholderId: (json['policyholderId'] ?? json['policyHolderId']) as String? ?? '',
+      policyTypeId: json['policyTypeId'] as String? ?? '',
       policyTypeName: json['policyTypeName'] as String? ?? '',
-      coverageLimit: (json['coverageLimit'] as num).toDouble(),
-      premium: (json['premium'] as num).toDouble(),
-      deductible: (json['deductible'] as num).toDouble(),
-      startDate: DateTime.parse(json['startDate'] as String),
-      expiryDate: DateTime.parse(json['expiryDate'] as String),
-      status: json['status'] as String,
-      renewalStatus: json['renewalStatus'] as String,
+      coverageLimit: (json['coverageLimit'] as num?)?.toDouble() ?? 0.0,
+      premium: (json['premium'] as num?)?.toDouble() ?? 0.0,
+      deductible: (json['deductible'] as num?)?.toDouble() ?? 0.0,
+      deductiblePercentage: (json['deductiblePercentage'] as num?)?.toDouble(),
+      startDate: json['startDate'] != null
+          ? DateTime.parse(json['startDate'] as String)
+          : DateTime.now(),
+      expiryDate: json['expiryDate'] != null
+          ? DateTime.parse(json['expiryDate'] as String)
+          : DateTime.now(),
+      status: json['status'] as String? ?? 'Draft',
+      renewalStatus: json['renewalStatus'] as String? ?? 'None',
       exclusions: json['exclusions'] as String?,
       isExpired: json['isExpired'] as bool? ?? false,
       canRenew: json['canRenew'] as bool? ?? false,
@@ -61,8 +76,12 @@ class Policy {
               ?.map((c) => PolicyCoverage.fromJson(c as Map<String, dynamic>))
               .toList() ??
           [],
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : DateTime.now(),
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
+          : DateTime.now(),
     );
   }
 
@@ -76,6 +95,7 @@ class Policy {
       'coverageLimit': coverageLimit,
       'premium': premium,
       'deductible': deductible,
+      'deductiblePercentage': deductiblePercentage,
       'startDate': startDate.toIso8601String(),
       'expiryDate': expiryDate.toIso8601String(),
       'status': status,
@@ -87,6 +107,14 @@ class Policy {
       'updatedAt': updatedAt.toIso8601String(),
     };
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Policy && runtimeType == other.runtimeType && id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 /// Policy coverage model.
@@ -134,6 +162,129 @@ class PolicyCoverage {
       'deductibleAmount': deductibleAmount,
       'percentageOfCoverage': percentageOfCoverage,
       'isActive': isActive,
+    };
+  }
+}
+
+/// Policy type reference model from GET /api/policytypes.
+class PolicyType {
+  final String id;
+  final String name;
+  final String description;
+  final double defaultCoverageLimit;
+  final double defaultDeductible;
+  final double? defaultDeductiblePercentage;
+  final int insuranceClass;
+  final String insuranceClassCode;
+  final String insuranceClassName;
+
+  const PolicyType({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.defaultCoverageLimit,
+    required this.defaultDeductible,
+    this.defaultDeductiblePercentage,
+    required this.insuranceClass,
+    required this.insuranceClassCode,
+    required this.insuranceClassName,
+  });
+
+  factory PolicyType.fromJson(Map<String, dynamic> json) {
+    return PolicyType(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      defaultCoverageLimit:
+          (json['defaultCoverageLimit'] as num?)?.toDouble() ?? 0.0,
+      defaultDeductible:
+          (json['defaultDeductible'] as num?)?.toDouble() ?? 0.0,
+      defaultDeductiblePercentage:
+          (json['defaultDeductiblePercentage'] as num?)?.toDouble(),
+      insuranceClass: json['insuranceClass'] as int? ?? 0,
+      insuranceClassCode: json['insuranceClassCode'] as String? ?? 'General',
+      insuranceClassName:
+          json['insuranceClassName'] as String? ?? 'General Insurance',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'description': description,
+      'defaultCoverageLimit': defaultCoverageLimit,
+      'defaultDeductible': defaultDeductible,
+      'defaultDeductiblePercentage': defaultDeductiblePercentage,
+      'insuranceClass': insuranceClass,
+      'insuranceClassCode': insuranceClassCode,
+      'insuranceClassName': insuranceClassName,
+    };
+  }
+
+  /// Canonical percentage deductible matching backend PolicyClaimCompatibility.
+  double get deductiblePercentage {
+    if (defaultDeductiblePercentage != null) return defaultDeductiblePercentage!;
+    final lower = name.toLowerCase().trim();
+    if (lower.contains('motor') || lower.contains('auto')) return 5.0;
+    if (lower.contains('health')) return 10.0;
+    if (lower.contains('home') || lower.contains('property')) return 10.0;
+    if (lower.contains('life')) return 0.0;
+    return 0.0;
+  }
+
+  /// Alias for deductible percentage.
+  double get effectiveDeductiblePercentage => deductiblePercentage;
+
+  /// Canonical fixed deductible matching backend PolicyClaimCompatibility.
+  double get fixedDeductible {
+    final lower = name.toLowerCase().trim();
+    if (lower.contains('motor') || lower.contains('auto')) return 10000.0;
+    if (lower.contains('health')) return 5000.0;
+    if (lower.contains('home') || lower.contains('property')) return 15000.0;
+    if (lower.contains('life')) return 0.0;
+    return defaultDeductible;
+  }
+
+  /// Whether this is Life Insurance (deductible is fixed at $0 / 0%).
+  bool get isLife => name.toLowerCase().contains('life');
+}
+
+/// Request DTO for creating a new policy matching backend CreatePolicyDto.
+class CreatePolicyRequest {
+  final String policyholderId;
+  final String policyTypeId;
+  final double coverageLimit;
+  final double deductible;
+  final double? deductiblePercentage;
+  final DateTime startDate;
+  final DateTime expiryDate;
+  final String? exclusions;
+
+  CreatePolicyRequest({
+    required this.policyholderId,
+    required this.policyTypeId,
+    required this.coverageLimit,
+    required this.deductible,
+    this.deductiblePercentage,
+    required this.startDate,
+    required this.expiryDate,
+    this.exclusions,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (policyholderId.isNotEmpty)
+        'policyholderId': policyholderId,
+      'policyTypeId': policyTypeId,
+      'coverageLimit': coverageLimit,
+      'deductible': deductible,
+      if (deductiblePercentage != null)
+        'deductiblePercentage': deductiblePercentage,
+      'startDate': startDate.toUtc().toIso8601String(),
+      'expiryDate': expiryDate.toUtc().toIso8601String(),
+      if (exclusions != null && exclusions!.trim().isNotEmpty)
+        'exclusions': exclusions!.trim(),
     };
   }
 }

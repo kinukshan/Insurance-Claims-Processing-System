@@ -147,7 +147,7 @@ describe('PolicyCreate Insurance Class Grouping & Fixed Deductible Rule', () => 
     expect(screen.getByText(/Life Insurance/)).toBeInTheDocument()
   })
 
-  it('enforces Life deductible = $0 and shows project rule note when Life Insurance selected', async () => {
+  it('enforces Life deductible = 0% and shows project rule note when Life Insurance selected', async () => {
     render(<PolicyCreate onBack={() => {}} onCreated={() => {}} />)
 
     await waitFor(() => {
@@ -158,17 +158,17 @@ describe('PolicyCreate Insurance Class Grouping & Fixed Deductible Rule', () => 
     fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222224' } })
 
     // Life Insurance project rule message displayed
-    expect(screen.getByText('Project rule: Life Insurance deductible is $0.')).toBeInTheDocument()
-    expect(screen.getByText(/The deductible is fixed according to your selected insurance type/)).toBeInTheDocument()
+    expect(screen.getByText('Project rule: Life Insurance deductible is 0%.')).toBeInTheDocument()
+    expect(screen.getByText(/percentage deductible/i)).toBeInTheDocument()
 
-    // Deductible input is disabled, read-only, and displays $0
+    // Deductible input is disabled, read-only, and displays 0%
     const deductibleInput = screen.getByPlaceholderText('1000')
     expect(deductibleInput).toBeDisabled()
     expect(deductibleInput).toHaveAttribute('readonly')
-    expect(deductibleInput.value).toBe('$0')
+    expect(deductibleInput.value).toBe('0%')
   })
 
-  it('automatically displays each fixed deductible ($10,000 for Motor, $5,000 for Health, $15,000 for Home) in read-only field', async () => {
+  it('automatically displays each percentage deductible (5% for Motor, 10% for Health, 10% for Home, 0% for Life) in read-only field', async () => {
     render(<PolicyCreate onBack={() => {}} onCreated={() => {}} />)
 
     await waitFor(() => {
@@ -178,27 +178,27 @@ describe('PolicyCreate Insurance Class Grouping & Fixed Deductible Rule', () => 
     const select = screen.getByRole('combobox')
     const deductibleInput = screen.getByPlaceholderText('1000')
 
-    // Select Motor Insurance
+    // Select Motor Insurance (5%)
     fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222221' } })
-    expect(deductibleInput.value).toBe('$10,000')
+    expect(deductibleInput.value).toBe('5%')
     expect(deductibleInput).toHaveAttribute('readonly')
     expect(deductibleInput).toBeDisabled()
 
-    // Select Health Insurance
+    // Select Health Insurance (10%)
     fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222222' } })
-    expect(deductibleInput.value).toBe('$5,000')
+    expect(deductibleInput.value).toBe('10%')
     expect(deductibleInput).toHaveAttribute('readonly')
     expect(deductibleInput).toBeDisabled()
 
-    // Select Home Insurance
+    // Select Home Insurance (10%)
     fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222223' } })
-    expect(deductibleInput.value).toBe('$15,000')
+    expect(deductibleInput.value).toBe('10%')
     expect(deductibleInput).toHaveAttribute('readonly')
     expect(deductibleInput).toBeDisabled()
 
-    // Select Life Insurance
+    // Select Life Insurance (0%)
     fireEvent.change(select, { target: { value: '22222222-2222-4222-8222-222222222224' } })
-    expect(deductibleInput.value).toBe('$0')
+    expect(deductibleInput.value).toBe('0%')
     expect(deductibleInput).toHaveAttribute('readonly')
     expect(deductibleInput).toBeDisabled()
   })
@@ -229,7 +229,7 @@ describe('PolicyCreate Insurance Class Grouping & Fixed Deductible Rule', () => 
     fireEvent.click(submitBtn)
 
     await waitFor(() => {
-      expect(screen.getByText(/Confirmed Deductible: \$10,000/i)).toBeInTheDocument()
+      expect(screen.getByText(/Confirmed Deductible: LKR 10,000/i)).toBeInTheDocument()
     })
   })
 })

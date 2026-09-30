@@ -45,6 +45,18 @@ public class PayoutValidationRequest
 
     [JsonPropertyName("proposed_payout")]
     public decimal ProposedPayout { get; set; }
+
+    [JsonPropertyName("eligible_amount")]
+    public decimal EligibleAmount { get; set; }
+
+    [JsonPropertyName("deductible_type")]
+    public string DeductibleType { get; set; } = "Percentage";
+
+    [JsonPropertyName("deductible_percentage")]
+    public decimal? DeductiblePercentage { get; set; }
+
+    [JsonPropertyName("final_payout")]
+    public decimal FinalPayout { get; set; }
 }
 
 /// <summary>

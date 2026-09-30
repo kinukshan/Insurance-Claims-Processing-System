@@ -37,6 +37,10 @@ public class PolicyTypeConfiguration : IEntityTypeConfiguration<PolicyType>
             .HasPrecision(18, 2)
             .IsRequired();
 
+        builder.Property(pt => pt.DefaultDeductiblePercentage)
+            .HasPrecision(5, 2)
+            .IsRequired(false);
+
         builder.Property(pt => pt.RiskMultiplier)
             .HasPrecision(18, 4)
             .IsRequired();

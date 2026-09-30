@@ -40,6 +40,9 @@ public class PolicyTypesController : ControllerBase
             DefaultDeductible = PolicyClaimCompatibility.GetFixedDeductible(pt.Id)
                 ?? PolicyClaimCompatibility.GetFixedDeductible(pt.Name)
                 ?? pt.DefaultDeductible,
+            DeductiblePercentage = PolicyClaimCompatibility.GetDeductiblePercentage(pt.Id)
+                ?? PolicyClaimCompatibility.GetDeductiblePercentage(pt.Name)
+                ?? pt.DefaultDeductiblePercentage,
             InsuranceClass = (int)pt.InsuranceClass,
             InsuranceClassCode = pt.InsuranceClass.ToString(),
             InsuranceClassName = pt.InsuranceClass == InsuranceClaims.Domain.PolicyManagement.Enums.InsuranceClass.LongTerm

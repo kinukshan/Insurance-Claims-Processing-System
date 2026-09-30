@@ -16,6 +16,7 @@ public class PolicyDto
     public decimal CoverageLimit { get; set; }
     public decimal Premium { get; set; }
     public decimal Deductible { get; set; }
+    public decimal? DeductiblePercentage { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime ExpiryDate { get; set; }
     public string Status { get; set; } = string.Empty;

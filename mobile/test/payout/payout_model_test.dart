@@ -54,7 +54,7 @@ void main() {
       expect(json['statusDisplay'], 'PendingApproval');
     });
 
-    test('formattedPayout returns dollar formatted string', () {
+    test('formattedPayout returns LKR formatted string', () {
       final payout = Payout(
         id: 'test-id',
         claimId: 'claim-id',
@@ -69,7 +69,7 @@ void main() {
         updatedAt: DateTime.now(),
       );
 
-      expect(payout.formattedPayout, '\$14500.00');
+      expect(payout.formattedPayout, 'LKR 14500.00');
     });
 
     test('isTerminal returns true for Paid status', () {

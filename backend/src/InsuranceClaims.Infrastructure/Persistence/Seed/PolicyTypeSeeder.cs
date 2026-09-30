@@ -30,6 +30,7 @@ public static class PolicyTypeSeeder
                 BasePremiumRate = 15.00m,
                 DefaultCoverageLimit = 500000.00m,
                 DefaultDeductible = PolicyClaimCompatibility.MotorDeductible,
+                DefaultDeductiblePercentage = PolicyClaimCompatibility.MotorDeductiblePercentage,
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.General,
                 IsActive = true
@@ -42,6 +43,7 @@ public static class PolicyTypeSeeder
                 BasePremiumRate = 20.00m,
                 DefaultCoverageLimit = 1000000.00m,
                 DefaultDeductible = PolicyClaimCompatibility.HealthDeductible,
+                DefaultDeductiblePercentage = PolicyClaimCompatibility.HealthDeductiblePercentage,
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.General,
                 IsActive = true
@@ -54,6 +56,7 @@ public static class PolicyTypeSeeder
                 BasePremiumRate = 10.00m,
                 DefaultCoverageLimit = 750000.00m,
                 DefaultDeductible = PolicyClaimCompatibility.HomeDeductible,
+                DefaultDeductiblePercentage = PolicyClaimCompatibility.HomeDeductiblePercentage,
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.General,
                 IsActive = true
@@ -66,6 +69,7 @@ public static class PolicyTypeSeeder
                 BasePremiumRate = 25.00m,
                 DefaultCoverageLimit = 2000000.00m,
                 DefaultDeductible = PolicyClaimCompatibility.LifeDeductible, // Project Business Rule: Life Insurance deductible is 0
+                DefaultDeductiblePercentage = PolicyClaimCompatibility.LifeDeductiblePercentage,
                 RiskMultiplier = 1.0m,
                 InsuranceClass = InsuranceClass.LongTerm,
                 IsActive = true
@@ -93,6 +97,14 @@ public static class PolicyTypeSeeder
             else
             {
                 // Existing record: PRESERVE all business values (limits, deductibles, rates)
+                // Set DefaultDeductiblePercentage if not already set
+                if (existing.DefaultDeductiblePercentage != canonical.DefaultDeductiblePercentage)
+                {
+                    existing.DefaultDeductiblePercentage = canonical.DefaultDeductiblePercentage;
+                    existing.UpdatedAt = DateTime.UtcNow;
+                    changesMade = true;
+                }
+
                 // Only update InsuranceClass if it hasn't been set to LongTerm for Life
                 if (canonical.Id == PolicyClaimCompatibility.LifeInsuranceId && existing.InsuranceClass != InsuranceClass.LongTerm)
                 {

@@ -74,7 +74,34 @@ export function isPolicySupportedForClaims(policyTypeName) {
 }
 
 /**
- * Authoritative fixed deductible amounts by insurance type.
+ * Authoritative percentage deductibles by insurance type:
+ * Motor: 5%
+ * Health: 10%
+ * Home / Property: 10%
+ * Life: 0%
+ */
+export const DEDUCTIBLE_PERCENTAGES = {
+  'Motor Insurance': 5,
+  'Health Insurance': 10,
+  'Home Insurance': 10,
+  'Life Insurance': 0,
+};
+
+/**
+ * Returns the configured deductible percentage for a given policy type name,
+ * or null if unrecognized.
+ */
+export function getDeductiblePercentage(policyTypeName) {
+  const normalized = normalizePolicyTypeName(policyTypeName);
+  if (normalized && DEDUCTIBLE_PERCENTAGES[normalized] !== undefined) {
+    return DEDUCTIBLE_PERCENTAGES[normalized];
+  }
+  return null;
+}
+
+/**
+ * Historical fixed deductible amounts by insurance type.
+ * Preserved for legacy policies created under fixed deductible terms.
  */
 export const FIXED_DEDUCTIBLES = {
   'Motor Insurance': 10000,
@@ -84,7 +111,7 @@ export const FIXED_DEDUCTIBLES = {
 };
 
 /**
- * Returns the fixed deductible amount for a given policy type name,
+ * Returns the historical fixed deductible amount for a given policy type name,
  * or null if unrecognized.
  */
 export function getFixedDeductible(policyTypeName) {
@@ -96,9 +123,51 @@ export function getFixedDeductible(policyTypeName) {
 }
 
 /**
- * Formats a deductible amount as a currency string (e.g., "$10,000", "$0").
+ * Helper to extract raw numeric amount from number or string.
+ * Strips legacy currency symbols ($, USD, LKR), commas, and whitespace
+ * to prevent double symbols (e.g. "LKR $").
+ */
+function toNumericAmount(val) {
+  if (val == null) return null;
+  if (typeof val === 'number') {
+    return isNaN(val) ? null : val;
+  }
+  if (typeof val === 'string') {
+    const cleaned = val.replace(/[$A-Za-z,\s]/g, '').trim();
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    return isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+/**
+ * Formats a deductible amount as a currency string (e.g., "LKR 10,000", "LKR 0").
  */
 export function formatDeductible(amount) {
-  if (amount == null || isNaN(amount)) return '$0';
-  return `$${Number(amount).toLocaleString('en-US')}`;
+  const num = toNumericAmount(amount);
+  if (num == null) return 'LKR 0';
+  return `LKR ${num.toLocaleString('en-US')}`;
+}
+
+/**
+ * Formats a currency amount in LKR with 2 decimal places (e.g. "LKR 20,000.00").
+ * Strips any accidental symbols to ensure only a single "LKR " prefix is rendered.
+ */
+export function formatCurrency(amount) {
+  const num = toNumericAmount(amount);
+  if (num == null) return 'LKR 0.00';
+  return `LKR ${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Formats a policy's deductible based on its terms:
+ * Percentage if percentage-based (e.g. "5% deductible"), or currency for legacy fixed policies.
+ */
+export function formatPolicyDeductible(policy) {
+  if (!policy) return '0%';
+  if (policy.deductiblePercentage != null) {
+    return `${policy.deductiblePercentage}% deductible`;
+  }
+  return formatDeductible(policy.deductible);
 }

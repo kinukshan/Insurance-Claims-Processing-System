@@ -44,7 +44,7 @@ describe('PayoutHistory Page Component', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Payout History' })).toBeTruthy()
       expect(screen.getByText('CLM-20260921-0002')).toBeTruthy()
-      expect(screen.getByText('$4,500.00')).toBeTruthy()
+      expect(screen.getByText('LKR 4,500.00')).toBeTruthy()
       expect(screen.getAllByText('Pending Approval').length).toBeGreaterThan(0)
     })
   })
@@ -144,7 +144,7 @@ describe('PayoutHistory Page Component', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'My Payouts' })).toBeTruthy()
       expect(screen.getByText('CLM-20260921-9999')).toBeTruthy()
-      expect(screen.getByText('$3,200.00')).toBeTruthy()
+      expect(screen.getByText('LKR 3,200.00')).toBeTruthy()
       expect(screen.getAllByText('Approved').length).toBeGreaterThan(0)
     })
 

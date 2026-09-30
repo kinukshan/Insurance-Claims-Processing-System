@@ -52,17 +52,34 @@ def validate_deductible_correctness(
     proposed_payout: float,
     policy_type: Optional[str] = None,
     claim_type: Optional[str] = None,
+    deductible_percentage: Optional[float] = None,
+    deductible_type: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Deductible rule: proposed payout must equal max(0, min(claim, coverage) - effective_deductible).
-    For Life Insurance + Life claim, PROJECT BUSINESS RULE: effective deductible is 0.
+    Deductible rule: proposed payout must equal max(0, eligible - effective_deductible).
+    For Life Insurance + Life claim, PROJECT BUSINESS RULE: effective deductible is 0 (0%).
+    For Percentage deductibles:
+        EligibleAmount = min(ApprovedClaimAmount, PolicyCoverageLimit)
+        DeductibleAmount = round(EligibleAmount * DeductiblePercentage / 100, 2)
+        FinalPayout = max(0, EligibleAmount - DeductibleAmount)
+    For historical Fixed deductibles (deductible_percentage is None):
+        EligibleAmount = min(ApprovedClaimAmount, PolicyCoverageLimit)
+        FinalPayout = max(0, EligibleAmount - deductible)
     """
     norm_policy = normalize_policy_type(policy_type) if policy_type else None
     is_life = norm_policy == "Life Insurance" and (claim_type or "").strip().lower() == "life"
-    effective_deductible = 0.0 if is_life else deductible
 
     eligible = min(approved_claim_amount, coverage_limit)
-    expected = eligible if is_life else max(0.0, eligible - effective_deductible)
+
+    if is_life:
+        effective_deductible = 0.0
+        expected = eligible
+    elif deductible_percentage is not None:
+        effective_deductible = round(eligible * (deductible_percentage / 100.0), 2)
+        expected = max(0.0, eligible - effective_deductible)
+    else:
+        effective_deductible = deductible
+        expected = max(0.0, eligible - effective_deductible)
 
     if abs(proposed_payout - expected) > 0.01:
         return (

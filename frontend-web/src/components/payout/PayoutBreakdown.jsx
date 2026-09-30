@@ -1,4 +1,5 @@
 import React from 'react'
+import { formatCurrency } from '../../utils/policyClaimMapping'
 
 /**
  * Reusable calculation breakdown component.
@@ -21,7 +22,7 @@ function PayoutBreakdown({ payout }) {
   const highlightRow = { ...rowStyle, borderBottom: '2px solid #1976d2', paddingTop: '12px' }
   const highlightValue = { ...valueStyle, color: '#1976d2', fontSize: '1.1rem' }
 
-  const fmt = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+  const fmt = (n) => formatCurrency(n)
 
   return (
     <div style={{ background: '#fafafa', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
@@ -39,17 +40,26 @@ function PayoutBreakdown({ payout }) {
 
       <div style={rowStyle}>
         <span style={labelStyle}>Eligible Amount <small>(min of claim, coverage)</small></span>
-        <span style={valueStyle}>{fmt(eligible)}</span>
+        <span style={valueStyle}>{fmt(payout.eligibleAmount != null ? payout.eligibleAmount : eligible)}</span>
       </div>
 
+      {payout.deductiblePercentage != null && (
+        <div style={rowStyle}>
+          <span style={labelStyle}>Deductible Percentage</span>
+          <span style={valueStyle}>{payout.deductiblePercentage}%</span>
+        </div>
+      )}
+
       <div style={rowStyle}>
-        <span style={labelStyle}>Deductible</span>
+        <span style={labelStyle}>
+          {payout.deductiblePercentage != null ? 'Calculated Deductible Amount' : 'Deductible'}
+        </span>
         <span style={{ ...valueStyle, color: '#c62828' }}>− {fmt(payout.deductible)}</span>
       </div>
 
       <div style={highlightRow}>
         <span style={{ ...labelStyle, fontWeight: 600, color: '#1976d2' }}>Final Payout</span>
-        <span style={highlightValue}>{fmt(payout.finalPayout)}</span>
+        <span style={highlightValue}>{fmt(payout.finalPayout != null ? payout.finalPayout : payout.proposedPayout)}</span>
       </div>
 
       {((payout.finalPayout <= 0 || payout.proposedPayout <= 0) && payout.deductible > 0 && eligible <= payout.deductible) && (

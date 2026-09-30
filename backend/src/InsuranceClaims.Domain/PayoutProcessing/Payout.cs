@@ -18,6 +18,7 @@ public class Payout : BaseEntity
     public decimal ApprovedClaimAmount { get; set; }
     public decimal CoverageLimit { get; set; }
     public decimal Deductible { get; set; }
+    public decimal? DeductiblePercentage { get; set; }
 
     // ── Calculated outputs ───────────────────────────────────────────
     public decimal ProposedPayout { get; set; }
@@ -52,12 +53,24 @@ public class Payout : BaseEntity
     /// <summary>
     /// Deterministic payout calculation.
     /// EligibleAmount = min(ApprovedClaimAmount, CoverageLimit)
-    /// FinalPayout    = max(0, EligibleAmount - Deductible)
+    /// If DeductiblePercentage has value:
+    ///   DeductibleAmount = round(EligibleAmount * DeductiblePercentage / 100, 2)
+    ///   FinalPayout      = max(0, EligibleAmount - DeductibleAmount)
+    /// Else (historical fixed):
+    ///   FinalPayout      = max(0, EligibleAmount - Deductible)
     /// </summary>
     public void CalculatePayout()
     {
         var eligible = Math.Min(ApprovedClaimAmount, CoverageLimit);
-        ProposedPayout = Math.Max(0m, eligible - Deductible);
+        if (DeductiblePercentage.HasValue)
+        {
+            Deductible = Math.Round(eligible * DeductiblePercentage.Value / 100m, 2, MidpointRounding.AwayFromZero);
+            ProposedPayout = Math.Max(0m, eligible - Deductible);
+        }
+        else
+        {
+            ProposedPayout = Math.Max(0m, eligible - Deductible);
+        }
         FinalPayout = ProposedPayout; // May diverge after approval adjustments
     }
 

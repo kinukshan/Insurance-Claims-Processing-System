@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { getPolicyById, updatePolicy } from '../../services/policyService'
 import { useAuth } from '../../context/AuthContext'
+import { formatCurrency } from '../../utils/policyClaimMapping'
 
 const STATUS_OPTIONS = ['Draft', 'Active', 'Cancelled']
 
@@ -46,6 +47,7 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
         setFormData({
           coverageLimit: String(policy.coverageLimit),
           deductible: String(policy.deductible),
+          deductiblePercentage: policy.deductiblePercentage != null ? policy.deductiblePercentage : null,
           expiryDate: policy.expiryDate ? policy.expiryDate.split('T')[0] : '',
           exclusions: policy.exclusions || '',
           status: policy.status,
@@ -211,18 +213,22 @@ function PolicyEdit({ policyId, onBack, onUpdated }) {
             {errors.coverageLimit && <div style={fieldErrorStyle}>{errors.coverageLimit}</div>}
           </div>
           <div style={{ flex: 1 }}>
-            <label htmlFor="deductible" style={labelStyle}>Deductible</label>
+            <label htmlFor="deductible" style={labelStyle}>
+              {formData.deductiblePercentage != null ? 'Deductible (%)' : 'Deductible'}
+            </label>
             <input
               id="deductible"
               type="text"
               name="deductible"
-              value={`$${Number(formData.deductible || 0).toLocaleString('en-US')}`}
+              value={formData.deductiblePercentage != null ? `${formData.deductiblePercentage}%` : formatCurrency(formData.deductible || 0)}
               readOnly
               disabled
               style={{ ...fieldStyle, backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
             />
             <div style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '4px' }}>
-              Deductible is fixed according to policy contract terms.
+              {formData.deductiblePercentage != null
+                ? `Standard percentage deductible (${formData.deductiblePercentage}%) cannot be altered after issuance.`
+                : 'Deductible is fixed according to policy contract terms.'}
             </div>
             {errors.deductible && <div style={fieldErrorStyle}>{errors.deductible}</div>}
           </div>

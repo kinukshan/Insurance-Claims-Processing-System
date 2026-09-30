@@ -16,7 +16,9 @@ public class PayoutDto
     // ── Calculation breakdown ────────────────────────────────────────
     public decimal ApprovedClaimAmount { get; set; }
     public decimal CoverageLimit { get; set; }
+    public decimal EligibleAmount => Math.Min(ApprovedClaimAmount, CoverageLimit);
     public decimal Deductible { get; set; }
+    public decimal? DeductiblePercentage { get; set; }
     public decimal ProposedPayout { get; set; }
     public decimal FinalPayout { get; set; }
 

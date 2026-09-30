@@ -527,4 +527,114 @@ public class FixedDeductibleRegressionTests
         Assert.Equal(500m, verified.Deductible);
         Assert.Equal(PayoutStatus.Paid, verified.Status);
     }
+
+    // =========================================================================
+    // SECTION D: Percentage Deductible Matrix & Coverage Capping Tests
+    // =========================================================================
+
+    [Theory]
+    [InlineData("Motor Insurance", 20000, 100000, 5, 1000, 19000)]
+    [InlineData("Health Insurance", 20000, 100000, 10, 2000, 18000)]
+    [InlineData("Home Insurance", 20000, 100000, 10, 2000, 18000)]
+    [InlineData("Life Insurance", 20000, 100000, 0, 0, 20000)]
+    public async Task PercentageDeductible_ConfirmedMatrix_CalculatesAuthoritativePayout(
+        string policyType, decimal claimAmount, decimal coverageLimit, decimal expectedPercentage, decimal expectedDeductible, decimal expectedPayout)
+    {
+        var repo = new InMemoryPayoutRepository();
+        var contextProvider = new ConfigurablePayoutContextProvider();
+        var validator = new PassingValidationAgent();
+        var service = new PayoutService(repo, contextProvider, validator);
+
+        var claimId = Guid.NewGuid();
+        contextProvider.Context = new PayoutContext
+        {
+            ClaimId = claimId,
+            PolicyId = Guid.NewGuid(),
+            PolicyType = policyType,
+            ClaimType = policyType.Replace(" Insurance", ""),
+            ApprovedClaimAmount = claimAmount,
+            CoverageLimit = coverageLimit,
+            Deductible = 0m,
+            DeductiblePercentage = expectedPercentage
+        };
+
+        var result = await service.CalculatePayoutAsync(claimId);
+
+        Assert.Equal(expectedPercentage, result.DeductiblePercentage);
+        Assert.Equal(expectedDeductible, result.Deductible);
+        Assert.Equal(expectedPayout, result.FinalPayout);
+        Assert.Equal(expectedPayout, result.ProposedPayout);
+    }
+
+    [Fact]
+    public async Task PercentageDeductible_CoverageCapping_AppliesPercentageToEligibleAmount()
+    {
+        // Motor coverage limit: $50,000, Approved claim: $80,000
+        // Eligible amount: $50,000, Deductible: 5% of $50,000 = $2,500, Final payout: $47,500
+        var repo = new InMemoryPayoutRepository();
+        var contextProvider = new ConfigurablePayoutContextProvider();
+        var validator = new PassingValidationAgent();
+        var service = new PayoutService(repo, contextProvider, validator);
+
+        var claimId = Guid.NewGuid();
+        contextProvider.Context = new PayoutContext
+        {
+            ClaimId = claimId,
+            PolicyId = Guid.NewGuid(),
+            PolicyType = "Motor Insurance",
+            ClaimType = "Motor",
+            ApprovedClaimAmount = 80000m,
+            CoverageLimit = 50000m,
+            Deductible = 0m,
+            DeductiblePercentage = 5m
+        };
+
+        var result = await service.CalculatePayoutAsync(claimId);
+
+        Assert.Equal(50000m, result.EligibleAmount);
+        Assert.Equal(5m, result.DeductiblePercentage);
+        Assert.Equal(2500m, result.Deductible);
+        Assert.Equal(47500m, result.FinalPayout);
+    }
+
+    [Fact]
+    public async Task CreatePolicy_SetsConfirmedDeductiblePercentageOnNewPolicy()
+    {
+        using var context = CreateInMemoryContext();
+        await PolicyTypeSeeder.EnsurePolicyTypesSeededAsync(context);
+        var service = new PolicyService(context);
+
+        var motorResult = await service.CreateAsync(new CreatePolicyDto
+        {
+            PolicyholderId = Guid.NewGuid(),
+            PolicyTypeId = PolicyClaimCompatibility.MotorInsuranceId,
+            CoverageLimit = 100000m,
+            Deductible = 0m,
+            StartDate = DateTime.UtcNow,
+            ExpiryDate = DateTime.UtcNow.AddYears(1)
+        });
+        Assert.Equal(5m, motorResult.DeductiblePercentage);
+
+        var healthResult = await service.CreateAsync(new CreatePolicyDto
+        {
+            PolicyholderId = Guid.NewGuid(),
+            PolicyTypeId = PolicyClaimCompatibility.HealthInsuranceId,
+            CoverageLimit = 100000m,
+            Deductible = 0m,
+            StartDate = DateTime.UtcNow,
+            ExpiryDate = DateTime.UtcNow.AddYears(1)
+        });
+        Assert.Equal(10m, healthResult.DeductiblePercentage);
+
+        var lifeResult = await service.CreateAsync(new CreatePolicyDto
+        {
+            PolicyholderId = Guid.NewGuid(),
+            PolicyTypeId = PolicyClaimCompatibility.LifeInsuranceId,
+            CoverageLimit = 100000m,
+            Deductible = 0m,
+            StartDate = DateTime.UtcNow,
+            ExpiryDate = DateTime.UtcNow.AddYears(1)
+        });
+        Assert.Equal(0m, lifeResult.DeductiblePercentage);
+    }
 }

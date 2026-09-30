@@ -74,7 +74,7 @@ describe('PayoutApproval', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Payout Details')).toBeTruthy()
-      expect(screen.getByText('$14,500.00')).toBeTruthy()
+      expect(screen.getByText('LKR 14,500.00')).toBeTruthy()
     })
   })
 

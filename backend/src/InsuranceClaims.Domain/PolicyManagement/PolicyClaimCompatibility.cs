@@ -20,11 +20,47 @@ public static class PolicyClaimCompatibility
     public static readonly Guid HomeInsuranceId = Guid.Parse("22222222-2222-4222-8222-222222222223");
     public static readonly Guid LifeInsuranceId = Guid.Parse("22222222-2222-4222-8222-222222222224");
 
-    // Canonical Fixed Deductibles
+    // Canonical Fixed Deductibles (Historical)
     public const decimal MotorDeductible = 10000.00m;
     public const decimal HealthDeductible = 5000.00m;
     public const decimal HomeDeductible = 15000.00m;
     public const decimal LifeDeductible = 0.00m;
+
+    // Canonical Deductible Percentages (Confirmed Business Rules)
+    public const decimal MotorDeductiblePercentage = 5.00m;
+    public const decimal HealthDeductiblePercentage = 10.00m;
+    public const decimal HomeDeductiblePercentage = 10.00m;
+    public const decimal LifeDeductiblePercentage = 0.00m;
+
+    /// <summary>
+    /// Authoritative source of deductible percentage by canonical policy type name or alias.
+    /// Fails closed (returns null) for unknown or unsupported policy types.
+    /// </summary>
+    public static decimal? GetDeductiblePercentage(string? rawPolicyTypeName)
+    {
+        var normalized = NormalizePolicyType(rawPolicyTypeName);
+        return normalized switch
+        {
+            MotorInsurance => MotorDeductiblePercentage,
+            HealthInsurance => HealthDeductiblePercentage,
+            HomeInsurance => HomeDeductiblePercentage,
+            LifeInsurance => LifeDeductiblePercentage,
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Authoritative source of deductible percentage by deterministic policy type ID.
+    /// Fails closed (returns null) for unknown policy type IDs.
+    /// </summary>
+    public static decimal? GetDeductiblePercentage(Guid policyTypeId)
+    {
+        if (policyTypeId == MotorInsuranceId) return MotorDeductiblePercentage;
+        if (policyTypeId == HealthInsuranceId) return HealthDeductiblePercentage;
+        if (policyTypeId == HomeInsuranceId) return HomeDeductiblePercentage;
+        if (policyTypeId == LifeInsuranceId) return LifeDeductiblePercentage;
+        return null;
+    }
 
     /// <summary>
     /// Authoritative source of fixed deductibles by canonical policy type name or alias.

@@ -24,8 +24,8 @@ class ClaimDocument {
 
   factory ClaimDocument.fromJson(Map<String, dynamic> json) {
     return ClaimDocument(
-      id: json['id'] as String,
-      claimId: json['claimId'] as String,
+      id: json['id'] as String? ?? '',
+      claimId: json['claimId'] as String? ?? '',
       fileName: json['fileName'] as String,
       fileUrl: json['fileUrl'] as String,
       documentType: json['documentType'] as String,

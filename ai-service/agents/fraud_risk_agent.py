@@ -100,8 +100,8 @@ class FraudRiskAgent:
                     RiskFlag(
                         flag_type="HighAmount",
                         description=(
-                            f"Claim amount ${claim_data.claim_amount:,.2f} "
-                            f"exceeds threshold of ${HIGH_AMOUNT_THRESHOLD:,.2f} "
+                            f"Claim amount LKR {claim_data.claim_amount:,.2f} "
+                            f"exceeds threshold of LKR {HIGH_AMOUNT_THRESHOLD:,.2f} "
                             f"(ratio: {amount_result['ratio']}x)"
                         ),
                         severity=severity,
@@ -249,7 +249,7 @@ class FraudRiskAgent:
                     )
                     prompt = (
                         f"Claim ID: {claim_data.claim_id}\n"
-                        f"Claim Amount: ${claim_data.claim_amount:,.2f}\n"
+                        f"Claim Amount: LKR {claim_data.claim_amount:,.2f}\n"
                         f"Description: {claim_data.description or 'N/A'}\n"
                         f"Deterministic Risk Score: {round(final_score, 1)}/100\n"
                         f"Deterministic Recommendation: {recommendation.value.upper()}\n"

@@ -70,7 +70,7 @@ public class PolicyValidationService : IPolicyValidationService
 
         if (claimedAmount > policy.CoverageLimit)
         {
-            issues.Add($"Claimed amount exceeds policy coverage limit of {policy.CoverageLimit:C}.");
+            issues.Add($"Claimed amount exceeds policy coverage limit of LKR {policy.CoverageLimit:N2}.");
         }
 
         var isValid = issues.Count == 0;

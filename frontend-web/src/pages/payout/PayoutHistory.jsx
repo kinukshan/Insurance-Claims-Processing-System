@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import PayoutStatusBadge from '../../components/payout/PayoutStatusBadge'
 import { getPayoutHistory, getMyPayouts } from '../../services/payoutService'
 import { useAuth } from '../../context/AuthContext'
+import { formatCurrency } from '../../utils/policyClaimMapping'
 
 function useOptionalAuth() {
   try {
@@ -75,7 +76,7 @@ function PayoutHistory() {
 
   useEffect(() => { loadHistory() }, [loadHistory])
 
-  const fmt = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+  const fmt = (n) => formatCurrency(n)
   const fmtDate = (d) => new Date(d).toLocaleString()
 
   const containerStyle = { maxWidth: '900px', margin: '0 auto', padding: '24px' }

@@ -236,9 +236,9 @@ describe('PayoutCalculation Page Component', () => {
     await waitFor(() => {
       expect(screen.getByText('Authoritative Claim & Policy Context')).toBeTruthy()
       expect(screen.getByText('CLM-20260922-0001')).toBeTruthy()
-      expect(screen.getByText('$7,500.00')).toBeTruthy()
-      expect(screen.getByText('$50,000.00')).toBeTruthy()
-      expect(screen.getByText('$500.00')).toBeTruthy()
+      expect(screen.getByText('LKR 7,500.00')).toBeTruthy()
+      expect(screen.getByText('LKR 50,000.00')).toBeTruthy()
+      expect(screen.getByText('LKR 500.00')).toBeTruthy()
       expect(screen.getByText('Auto')).toBeTruthy()
       expect(screen.getByText('Comprehensive Motor')).toBeTruthy()
     })
@@ -408,7 +408,7 @@ describe('PayoutCalculation Page Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Payout Proposal')).toBeTruthy()
-      expect(screen.getByText('$0.00')).toBeTruthy()
+      expect(screen.getByText('LKR 0.00')).toBeTruthy()
       expect(screen.getByText('Your eligible claim amount does not exceed your policy deductible. No insurance payout is payable for this claim.')).toBeTruthy()
     })
   })

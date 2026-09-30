@@ -5,6 +5,7 @@ import PayoutStatusBadge from '../../components/payout/PayoutStatusBadge'
 import { calculatePayout, getPayoutByClaim } from '../../services/payoutService'
 import { getClaim } from '../../services/claimService'
 import { getPolicyById } from '../../services/policyService'
+import { formatCurrency as sharedFormatCurrency } from '../../utils/policyClaimMapping'
 
 /**
  * Staff-facing payout calculation page.
@@ -28,8 +29,8 @@ function PayoutCalculation() {
   const [infoMessage, setInfoMessage] = useState(null)
 
   const formatCurrency = (val) => {
-    if (val == null || isNaN(val)) return '—'
-    return `$${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    if (val == null) return '—'
+    return sharedFormatCurrency(val)
   }
 
   const loadPreloadedClaim = useCallback(async (targetClaimId) => {
@@ -97,6 +98,7 @@ function PayoutCalculation() {
           policyType: policyData?.policyTypeName,
           coverageLimit: policyData?.coverageLimit,
           deductible: policyData?.deductible,
+          deductiblePercentage: policyData?.deductiblePercentage,
         })
       }
     } catch {
@@ -214,6 +216,7 @@ function PayoutCalculation() {
           policyType: policyData?.policyTypeName,
           coverageLimit: policyData?.coverageLimit,
           deductible: policyData?.deductible,
+          deductiblePercentage: policyData?.deductiblePercentage,
         })
       }
     } catch {}
@@ -289,9 +292,13 @@ function PayoutCalculation() {
             <div>
               <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Deductible</span>
               <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>
-                {claimContext?.deductible != null
-                  ? formatCurrency(claimContext.deductible)
-                  : (payout?.deductible != null ? formatCurrency(payout.deductible) : '—')}
+                {claimContext?.deductiblePercentage != null
+                  ? `${claimContext.deductiblePercentage}%`
+                  : (claimContext?.deductible != null
+                    ? formatCurrency(claimContext.deductible)
+                    : (payout?.deductiblePercentage != null
+                      ? `${payout.deductiblePercentage}%`
+                      : (payout?.deductible != null ? formatCurrency(payout.deductible) : '—')))}
               </strong>
             </div>
             <div>

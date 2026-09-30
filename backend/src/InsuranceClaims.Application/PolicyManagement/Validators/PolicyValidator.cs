@@ -27,6 +27,9 @@ public static class PolicyValidator
         if (dto.Deductible < 0)
             errors.Add("Deductible cannot be negative.");
 
+        if (dto.DeductiblePercentage.HasValue && (dto.DeductiblePercentage.Value < 0 || dto.DeductiblePercentage.Value > 100))
+            errors.Add("Deductible percentage must be between 0 and 100.");
+
         if (dto.StartDate >= dto.ExpiryDate)
             errors.Add("Start date must be before expiry date.");
 
@@ -55,6 +58,9 @@ public static class PolicyValidator
 
         if (dto.Deductible.HasValue && dto.Deductible.Value < 0)
             errors.Add("Deductible cannot be negative.");
+
+        if (dto.DeductiblePercentage.HasValue && (dto.DeductiblePercentage.Value < 0 || dto.DeductiblePercentage.Value > 100))
+            errors.Add("Deductible percentage must be between 0 and 100.");
 
         if (dto.Exclusions != null && dto.Exclusions.Length > 2000)
             errors.Add("Exclusions text cannot exceed 2000 characters.");

@@ -43,6 +43,10 @@ public class PolicyConfiguration : IEntityTypeConfiguration<Policy>
             .HasPrecision(18, 2)
             .IsRequired();
 
+        builder.Property(p => p.DeductiblePercentage)
+            .HasPrecision(5, 2)
+            .IsRequired(false);
+
         builder.Property(p => p.StartDate)
             .IsRequired();
 

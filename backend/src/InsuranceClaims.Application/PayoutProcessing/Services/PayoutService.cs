@@ -57,8 +57,14 @@ public class PayoutService : IPayoutService
         var isLife = PolicyClaimCompatibility.IsLifeInsurance(context.PolicyType)
                   && PolicyClaimCompatibility.IsLifeClaim(context.ClaimType);
 
-        // 7. Compute effective deductible (defense-in-depth: Life always 0, even if legacy/tampered > 0)
-        var effectiveDeductible = isLife ? 0m : context.Deductible;
+        var isPercentageBased = context.DeductiblePercentage.HasValue;
+        var deductiblePercentage = isPercentageBased
+            ? (isLife ? 0m : context.DeductiblePercentage!.Value)
+            : (decimal?)null;
+
+        var effectiveDeductible = isPercentageBased
+            ? 0m // Populated deterministically by CalculatePayout
+            : (isLife ? 0m : context.Deductible);
 
         // 8, 9, 10. Build candidate payout IN MEMORY
         var payout = new Payout
@@ -68,13 +74,17 @@ public class PayoutService : IPayoutService
             ApprovedClaimAmount = context.ApprovedClaimAmount,
             CoverageLimit = context.CoverageLimit,
             Deductible = effectiveDeductible,
+            DeductiblePercentage = deductiblePercentage,
             Status = PayoutStatus.Draft
         };
 
         // Deterministic calculation:
-        // eligible = min(ApprovedClaimAmount, CoverageLimit)
-        // final = eligible - effectiveDeductible (for Life: effectiveDeductible=0 => eligible)
+        // EligibleAmount = min(ApprovedClaimAmount, CoverageLimit)
+        // If percentage: DeductibleAmount = round(EligibleAmount * DeductiblePercentage / 100, 2)
+        // FinalPayout = max(0, EligibleAmount - DeductibleAmount)
         payout.CalculatePayout();
+
+        var eligible = Math.Min(context.ApprovedClaimAmount, context.CoverageLimit);
 
         // 11. Request deterministic validation from the Validation/Safety Agent
         var validationResult = await _validationAgent.ValidatePayoutProposalAsync(
@@ -85,8 +95,12 @@ public class PayoutService : IPayoutService
                 ClaimType = context.ClaimType,
                 ApprovedClaimAmount = context.ApprovedClaimAmount,
                 CoverageLimit = context.CoverageLimit,
-                Deductible = effectiveDeductible,
-                ProposedPayout = payout.ProposedPayout
+                EligibleAmount = eligible,
+                Deductible = payout.Deductible,
+                DeductibleType = isPercentageBased ? "Percentage" : "Fixed",
+                DeductiblePercentage = deductiblePercentage,
+                ProposedPayout = payout.ProposedPayout,
+                FinalPayout = payout.FinalPayout
             });
 
         // 12. If deterministic validation fails -> stop immediately (no mutations, draft preserved)
@@ -347,6 +361,7 @@ public class PayoutService : IPayoutService
             ApprovedClaimAmount = payout.ApprovedClaimAmount,
             CoverageLimit = payout.CoverageLimit,
             Deductible = payout.Deductible,
+            DeductiblePercentage = payout.DeductiblePercentage,
             ProposedPayout = payout.ProposedPayout,
             FinalPayout = payout.FinalPayout,
             Explanation = explanation,

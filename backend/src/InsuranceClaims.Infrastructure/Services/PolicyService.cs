@@ -83,16 +83,17 @@ public class PolicyService : IPolicyService
         if (policyType == null)
             throw new ArgumentException($"Policy type with ID '{dto.PolicyTypeId}' not found.");
 
-        // Identify fixed deductible from authoritative backend data
-        var fixedDeductible = PolicyClaimCompatibility.GetFixedDeductible(policyType.Id)
-            ?? PolicyClaimCompatibility.GetFixedDeductible(policyType.Name);
+        // Identify confirmed deductible percentage from authoritative backend data
+        var deductiblePercentage = PolicyClaimCompatibility.GetDeductiblePercentage(policyType.Id)
+            ?? PolicyClaimCompatibility.GetDeductiblePercentage(policyType.Name)
+            ?? policyType.DefaultDeductiblePercentage;
 
-        if (!fixedDeductible.HasValue)
+        if (!deductiblePercentage.HasValue)
         {
             throw new ArgumentException($"Unsupported policy type '{policyType.Name}'.");
         }
 
-        // Always enforce authoritative fixed deductible (ignoring any client-submitted deductible)
+        // Always enforce authoritative percentage deductible (ignoring any client-submitted deductible)
         var policy = new Policy
         {
             Id = Guid.NewGuid(),
@@ -100,7 +101,8 @@ public class PolicyService : IPolicyService
             PolicyholderId = dto.PolicyholderId,
             PolicyTypeId = dto.PolicyTypeId,
             CoverageLimit = dto.CoverageLimit,
-            Deductible = fixedDeductible.Value,
+            Deductible = PolicyClaimCompatibility.GetFixedDeductible(policyType.Name) ?? policyType.DefaultDeductible,
+            DeductiblePercentage = deductiblePercentage.Value,
             StartDate = dto.StartDate,
             ExpiryDate = dto.ExpiryDate,
             Exclusions = dto.Exclusions,
@@ -203,13 +205,17 @@ public class PolicyService : IPolicyService
         var policyType = policy.PolicyType ?? await _context.PolicyTypes.FindAsync(policy.PolicyTypeId);
         var isLife = policyType != null && (policyType.Id == PolicyClaimCompatibility.LifeInsuranceId || PolicyClaimCompatibility.IsLifeInsurance(policyType.Name));
 
-        // Existing policy agreed deductibles are preserved; Life Insurance strictly enforces 0m.
-        // General policy edit requests cannot bypass the fixed-deductible rule or alter agreed terms.
+        // Existing policy agreed deductibles are preserved; Life Insurance strictly enforces 0m / 0%.
+        // General policy edit requests cannot bypass the authoritative deductible rule or alter agreed terms.
         if (isLife)
         {
             policy.Deductible = 0m;
+            if (policy.DeductiblePercentage.HasValue)
+            {
+                policy.DeductiblePercentage = 0m;
+            }
         }
-        // Non-Life existing policy deductibles remain untouched (dto.Deductible is ignored).
+        // Non-Life existing policy deductibles remain untouched (dto.Deductible and dto.DeductiblePercentage are ignored).
 
         // 8. Expiry date validation and update
         if (dto.ExpiryDate.HasValue)
@@ -383,6 +389,7 @@ public class PolicyService : IPolicyService
             PolicyTypeId = policy.PolicyTypeId,
             CoverageLimit = policy.CoverageLimit,
             Deductible = policy.Deductible,
+            DeductiblePercentage = policy.DeductiblePercentage,
             StartDate = newStartDate,
             ExpiryDate = newExpiryDate,
             Exclusions = policy.Exclusions,
@@ -462,7 +469,7 @@ public class PolicyService : IPolicyService
     private static decimal CalculatePremium(Policy policy, PolicyType policyType)
     {
         var basePremium = policyType.BasePremiumRate * policy.CoverageLimit * policyType.RiskMultiplier / 1000m;
-        var deductibleDiscount = policy.Deductible > 0
+        var deductibleDiscount = !policy.DeductiblePercentage.HasValue && policy.Deductible > 0
             ? policy.Deductible * 0.05m
             : 0m;
         var premium = Math.Max(basePremium - deductibleDiscount, 0m);
@@ -498,6 +505,7 @@ public class PolicyService : IPolicyService
             CoverageLimit = policy.CoverageLimit,
             Premium = policy.Premium,
             Deductible = policy.Deductible,
+            DeductiblePercentage = policy.DeductiblePercentage,
             StartDate = policy.StartDate,
             ExpiryDate = policy.ExpiryDate,
             Status = policy.Status.ToString(),

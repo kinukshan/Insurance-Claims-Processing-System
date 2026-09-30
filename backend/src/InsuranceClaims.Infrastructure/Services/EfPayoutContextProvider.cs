@@ -90,7 +90,8 @@ public class EfPayoutContextProvider : IPayoutContextProvider
             PolicyType = claim.Policy.PolicyType?.Name ?? "Unknown",
             ClaimType = claim.ClaimType.ToString(),
             CoverageLimit = claim.Policy.CoverageLimit,
-            Deductible = claim.Policy.Deductible
+            Deductible = claim.Policy.Deductible,
+            DeductiblePercentage = claim.Policy.DeductiblePercentage
         };
     }
 }
