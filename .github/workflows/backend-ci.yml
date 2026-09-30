@@ -39,7 +39,18 @@ jobs:
 
       - name: Build
         run: dotnet build backend/InsuranceClaims.slnx --no-restore --configuration Release
+      - name: Install EF Core CLI
+        run: dotnet tool install --global dotnet-ef --version '10.*'
 
+      - name: Apply database migrations
+        run: >
+          dotnet ef database update
+          --project backend/src/InsuranceClaims.Infrastructure
+          --startup-project backend/src/InsuranceClaims.Api
+          --configuration Release
+          --no-build
+        env:
+          ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=insurance_claims_test;Username=postgres;Password=postgres_test"
       - name: Run unit tests
         run: dotnet test backend/tests/InsuranceClaims.UnitTests/InsuranceClaims.UnitTests.csproj --no-build --configuration Release --verbosity normal
 
