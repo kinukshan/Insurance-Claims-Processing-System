@@ -309,9 +309,7 @@ public class PolicyService : IPolicyService
 
         var basePremiumRate = policy.PolicyType.BasePremiumRate;
         var riskMultiplier = policy.PolicyType.RiskMultiplier;
-        var deductibleDiscount = policy.Deductible > 0
-            ? Math.Round(policy.Deductible * 0.05m, 2)
-            : 0m;
+        var deductibleDiscount = CalculateDeductibleDiscount(policy);
 
         var calculatedPremium = CalculatePremium(policy, policy.PolicyType);
 
@@ -462,6 +460,22 @@ public class PolicyService : IPolicyService
     // --- Private helpers ---
 
     /// <summary>
+    /// Calculates the deductible discount for premium computation.
+    /// Percentage-deductible policies receive no premium discount (percentage applies to claim payouts only).
+    /// Legacy fixed-deductible policies receive a 5% discount on the fixed deductible amount.
+    /// </summary>
+    private static decimal CalculateDeductibleDiscount(Policy policy)
+    {
+        if (policy.DeductiblePercentage.HasValue)
+            return 0m;
+
+        if (policy.Deductible <= 0)
+            return 0m;
+
+        return Math.Round(policy.Deductible * 0.05m, 2);
+    }
+
+    /// <summary>
     /// Deterministic premium calculation:
     /// (basePremiumRate × coverageLimit × riskMultiplier / 1000) - deductible discount
     /// PROJECT BUSINESS RULE: Simplified project premium calculation; not an actuarial Life Insurance pricing model.
@@ -469,9 +483,7 @@ public class PolicyService : IPolicyService
     private static decimal CalculatePremium(Policy policy, PolicyType policyType)
     {
         var basePremium = policyType.BasePremiumRate * policy.CoverageLimit * policyType.RiskMultiplier / 1000m;
-        var deductibleDiscount = !policy.DeductiblePercentage.HasValue && policy.Deductible > 0
-            ? policy.Deductible * 0.05m
-            : 0m;
+        var deductibleDiscount = CalculateDeductibleDiscount(policy);
         var premium = Math.Max(basePremium - deductibleDiscount, 0m);
         return Math.Round(premium, 2);
     }
