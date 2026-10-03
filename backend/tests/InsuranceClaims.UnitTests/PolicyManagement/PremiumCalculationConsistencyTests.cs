@@ -80,7 +80,7 @@ public class PremiumCalculationConsistencyTests
             DeductiblePercentage = null, // No percentage → legacy fixed deductible
             StartDate = DateTime.UtcNow,
             ExpiryDate = DateTime.UtcNow.AddYears(1),
-            Status = PolicyStatus.Active,
+            Status = PolicyStatus.Draft,
             Premium = 0m
         };
         context.Policies.Add(legacyPolicy);
@@ -119,7 +119,7 @@ public class PremiumCalculationConsistencyTests
             DeductiblePercentage = null,
             StartDate = DateTime.UtcNow,
             ExpiryDate = DateTime.UtcNow.AddYears(1),
-            Status = PolicyStatus.Active,
+            Status = PolicyStatus.Draft,
             Premium = 0m
         };
         context.Policies.Add(policy);
@@ -160,7 +160,7 @@ public class PremiumCalculationConsistencyTests
             DeductiblePercentage = deductiblePct.HasValue ? (decimal)deductiblePct.Value : null,
             StartDate = DateTime.UtcNow,
             ExpiryDate = DateTime.UtcNow.AddYears(1),
-            Status = PolicyStatus.Active,
+            Status = PolicyStatus.Draft,
             Premium = 0m
         };
         context.Policies.Add(policy);
