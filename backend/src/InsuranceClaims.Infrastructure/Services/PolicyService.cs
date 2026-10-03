@@ -311,6 +311,24 @@ public class PolicyService : IPolicyService
         var riskMultiplier = policy.PolicyType.RiskMultiplier;
         var deductibleDiscount = CalculateDeductibleDiscount(policy);
 
+        // For non-Draft policies (Active, Cancelled, Expired, Lapsed), the stored
+        // Premium is the agreed/authoritative value and must not be replaced by a
+        // recalculation using potentially updated PolicyType pricing.
+        if (policy.Status != PolicyStatus.Draft)
+        {
+            return new PremiumCalculationResultDto
+            {
+                PolicyId = policy.Id,
+                PolicyNumber = policy.PolicyNumber,
+                BasePremiumRate = basePremiumRate,
+                CoverageLimit = policy.CoverageLimit,
+                RiskMultiplier = riskMultiplier,
+                DeductibleDiscount = deductibleDiscount,
+                CalculatedPremium = policy.Premium,
+                Breakdown = $"Agreed premium preserved (policy status: {policy.Status}). Stored premium = {policy.Premium}"
+            };
+        }
+
         var calculatedPremium = CalculatePremium(policy, policy.PolicyType);
 
         return new PremiumCalculationResultDto
