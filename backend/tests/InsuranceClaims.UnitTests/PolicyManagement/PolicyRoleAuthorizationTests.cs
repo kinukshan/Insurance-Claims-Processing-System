@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using InsuranceClaims.Api.Controllers;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Enums;
@@ -255,8 +256,8 @@ public class PolicyRoleAuthorizationTests : IDisposable
             PolicyTypeId = _policyA.PolicyTypeId,
             CoverageLimit = 30000m,
             Deductible = 500m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await _controller.Create(dto);

@@ -491,3 +491,356 @@ class TestDocumentTypeIntegrityRegressions:
         assert result.complete is False
         assert result.fallback_used is True
         assert "Photos of Damage" in result.missing_items
+
+
+class TestHealthDocumentSemanticRegressions:
+    """
+    Regression tests for Health claim document semantic content validation:
+    - Architecture lecture slides tagged Doctor Referral -> Mismatch
+    - Valid dummy Doctor Referral -> Accepted
+    - Doctor Referral wording variation -> Accepted
+    - Medical Report tagged Doctor Referral -> Mismatch
+    - Hospital Bill tagged Medical Report -> Mismatch
+    - Prescription tagged Hospital Bills -> Mismatch
+    - Valid Medical Report, Hospital Bill, Prescription -> Accepted
+    - Scanned/non-text PDF -> Unreadable
+    - Architecture PDF renamed doctor_referral.pdf -> Mismatch
+    - Gemini cannot override deterministic mismatch
+    - Gemini failure preserves deterministic mismatch
+    - Health claim completeness checks
+    """
+
+    ARCHITECTURE_TEXT = (
+        "Lecture 06: Software Architecture Patterns. Layered Architecture, Model-View-Controller (MVC), "
+        "Event-Driven Architecture, Microservices, Domain-Driven Design, Repository Pattern, Dependency Injection. "
+        "University Computer Science Department slides."
+    )
+
+    GENUINE_REFERRAL_TEXT = (
+        "Doctor Referral Letter. Date: 22 Sep 2026. To: Orthopedic Department Nawaloka Hospital, Colombo. "
+        "Patient: Saki Ki. Patient ID: TEST-PATIENT-001. Referral Reason: The patient was examined following "
+        "an accident and reports persistent left arm and shoulder pain. Request: Kindly evaluate the patient "
+        "for further management. Referring Doctor: Dr. Saman Perera MBBS MD."
+    )
+
+    REFERRAL_VARIATION_TEXT = (
+        "Consultation Request & Referral. To: Cardiology Specialist Clinic, National Hospital. "
+        "We refer this patient Mr. David Perera for second opinion and clinical review of chest symptoms. "
+        "Referring Physician: Dr. Nimal Silva General Practitioner."
+    )
+
+    MEDICAL_REPORT_TEXT = (
+        "General Hospital Colombo Medical Examination Report. Patient Name: Jane Doe. "
+        "Attending Physician: Dr. Silva MD. Clinical Findings: Patient presents with acute fracture of the left tibia. "
+        "Clinical diagnosis: Closed displaced fracture. Treatment plan: Surgical reduction and internal fixation."
+    )
+
+    HOSPITAL_BILL_TEXT = (
+        "Asiri Central Hospital Invoice and Billing Statement. Bill No: INV-98241. "
+        "Patient: John Doe. Bed charges, pharmacy charges, laboratory fees. Subtotal: LKR 45,000. "
+        "Total Amount Due: LKR 52,500. Payment method: Cash/Card."
+    )
+
+    PRESCRIPTION_TEXT = (
+        "Dr. Kamal Perera Clinic Medical Prescription Slip. Patient: Saki Ki. "
+        "Rx: Amoxicillin 500mg capsules, 1 capsule 3 times daily for 7 days. "
+        "Paracetamol 500mg tablets, 2 tablets every 6 hours PRN for pain. "
+        "Doctor: Dr. Kamal Perera MBBS."
+    )
+
+    def test_health1_architecture_pdf_tagged_doctor_referral_is_mismatch(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="06 - Architecture Patterns.pdf",
+            extracted_text=self.ARCHITECTURE_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-001",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("Doctor Referral" in inc.field and "mismatch" in inc.description.lower() for inc in result.inconsistencies)
+
+    def test_health2_valid_dummy_doctor_referral_accepted(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="dummy_doctor_referral.pdf",
+            extracted_text=self.GENUINE_REFERRAL_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-002",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        referral_errs = [inc for inc in result.inconsistencies if "Doctor Referral" in inc.field and inc.severity == "error"]
+        assert len(referral_errs) == 0
+
+    def test_health3_doctor_referral_wording_variation_accepted(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="referral_letter.pdf",
+            extracted_text=self.REFERRAL_VARIATION_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-003",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        referral_errs = [inc for inc in result.inconsistencies if "Doctor Referral" in inc.field and inc.severity == "error"]
+        assert len(referral_errs) == 0
+
+    def test_health4_medical_report_tagged_doctor_referral_is_mismatch(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="medical_report.pdf",
+            extracted_text=self.MEDICAL_REPORT_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-004",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("Doctor Referral" in inc.field for inc in result.inconsistencies)
+
+    def test_health5_hospital_bill_tagged_medical_report_is_mismatch(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Medical Report",
+            file_name="hospital_bill.pdf",
+            extracted_text=self.HOSPITAL_BILL_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-005",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("Medical Report" in inc.field for inc in result.inconsistencies)
+
+    def test_health6_prescription_tagged_hospital_bills_is_mismatch(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Hospital Bills",
+            file_name="prescription.pdf",
+            extracted_text=self.PRESCRIPTION_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-006",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("Hospital Bills" in inc.field for inc in result.inconsistencies)
+
+    def test_health7_valid_medical_report_accepted(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Medical Report",
+            file_name="medical_report.pdf",
+            extracted_text=self.MEDICAL_REPORT_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-007",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        errs = [inc for inc in result.inconsistencies if "Medical Report" in inc.field and inc.severity == "error"]
+        assert len(errs) == 0
+
+    def test_health8_valid_hospital_bill_accepted(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Hospital Bills",
+            file_name="hospital_bill.pdf",
+            extracted_text=self.HOSPITAL_BILL_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-008",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        errs = [inc for inc in result.inconsistencies if "Hospital Bills" in inc.field and inc.severity == "error"]
+        assert len(errs) == 0
+
+    def test_health9_valid_prescription_accepted(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Prescription",
+            file_name="prescription.pdf",
+            extracted_text=self.PRESCRIPTION_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-009",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        errs = [inc for inc in result.inconsistencies if "Prescription" in inc.field and inc.severity == "error"]
+        assert len(errs) == 0
+
+    def test_health10_scanned_pdf_with_empty_text_is_unreadable(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="scanned_referral.pdf",
+            extracted_text="",  # Scanned PDF returning empty text
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-010",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("unreadable" in inc.description.lower() for inc in result.inconsistencies)
+
+    def test_health11_architecture_pdf_renamed_to_doctor_referral_still_mismatch(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="doctor_referral.pdf",
+            extracted_text=self.ARCHITECTURE_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-011",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("Doctor Referral" in inc.field for inc in result.inconsistencies)
+
+    def test_health12_gemini_success_cannot_override_deterministic_mismatch(self):
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.return_value = "Everything looks completely valid and complete."
+
+        agent = DocumentVerificationAgent(gemini_client_instance=mock_gemini)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="06 - Architecture Patterns.pdf",
+            extracted_text=self.ARCHITECTURE_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-012",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("Doctor Referral" in inc.field for inc in result.inconsistencies)
+
+    def test_health13_gemini_unavailable_preserves_deterministic_mismatch(self):
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.side_effect = RuntimeError("503 Service Unavailable")
+
+        agent = DocumentVerificationAgent(gemini_client_instance=mock_gemini)
+        doc = DocumentData(
+            document_type="Doctor Referral",
+            file_name="06 - Architecture Patterns.pdf",
+            extracted_text=self.ARCHITECTURE_TEXT,
+            file_size=15000,
+        )
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-013",
+            claim_type="Health",
+            incident_date=date.today().isoformat(),
+            claimed_amount=50000.0,
+            documents=[doc],
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert result.fallback_used is True
+        assert any("Doctor Referral" in inc.field for inc in result.inconsistencies)
+
+    def test_health14_three_valid_docs_plus_architecture_referral_incomplete(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        today = date.today().isoformat()
+        docs = [
+            DocumentData(document_type="Medical Report", file_name="med.pdf", extracted_text=self.MEDICAL_REPORT_TEXT, file_size=10000),
+            DocumentData(document_type="Hospital Bills", file_name="bill.pdf", extracted_text=self.HOSPITAL_BILL_TEXT, file_size=10000),
+            DocumentData(document_type="Prescription", file_name="rx.pdf", extracted_text=self.PRESCRIPTION_TEXT, file_size=10000),
+            DocumentData(document_type="Doctor Referral", file_name="06 - Architecture Patterns.pdf", extracted_text=self.ARCHITECTURE_TEXT, file_size=10000),
+        ]
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-014",
+            claim_type="Health",
+            incident_date=today,
+            claimed_amount=50000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert any("Doctor Referral" in inc.field for inc in result.inconsistencies)
+
+    def test_health15_all_four_valid_health_docs_complete(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        today = date.today().isoformat()
+        docs = [
+            DocumentData(document_type="Medical Report", file_name="med.pdf", extracted_text=self.MEDICAL_REPORT_TEXT, file_size=10000),
+            DocumentData(document_type="Hospital Bills", file_name="bill.pdf", extracted_text=self.HOSPITAL_BILL_TEXT, file_size=10000),
+            DocumentData(document_type="Prescription", file_name="rx.pdf", extracted_text=self.PRESCRIPTION_TEXT, file_size=10000),
+            DocumentData(document_type="Doctor Referral", file_name="dummy_doctor_referral.pdf", extracted_text=self.GENUINE_REFERRAL_TEXT, file_size=10000),
+        ]
+        request = DocumentVerificationRequest(
+            claim_id="reg-health-015",
+            claim_type="Health",
+            incident_date=today,
+            claimed_amount=50000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert result.complete is True
+        assert len(result.missing_items) == 0
+        assert len([inc for inc in result.inconsistencies if inc.severity == "error"]) == 0

@@ -470,6 +470,548 @@ public class DocumentTypeIntegrityRegressionTests
         Assert.Equal(DocumentVerificationStatus.Rejected, updatedClaim.Documents.First().VerificationStatus);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // HEALTH SEMANTIC CONTENT VALIDATION REGRESSION TESTS (1-15)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private static byte[] MakeScannedPdfWithoutTextBytes()
+    {
+        var pdf = "%PDF-1.4\n" +
+                  "1 0 obj << /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+                  "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
+                  "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n" +
+                  "xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n" +
+                  "trailer << /Size 4 /Root 1 0 R >>\nstartxref\n190\n%%EOF";
+        return Encoding.Latin1.GetBytes(pdf);
+    }
+
+    private static readonly byte[] ArchitecturePdfBytes = MakeFakePdfBytes(
+        "Lecture 06 Software Architecture Patterns Model View Controller MVC Layered Architecture Event Driven Microservices Design Patterns Dependency Injection University Course Slides");
+
+    private static readonly byte[] GenuineDoctorReferralPdfBytes = MakeFakePdfBytes(
+        "Doctor Referral Letter Date 22 Sep 2026 To Orthopedic Department Hospital Patient Saki Ki Patient ID 123 Referral Reason kindly evaluate the patient for further management Referring Doctor Dr Saman Perera MBBS");
+
+    private static readonly byte[] DoctorReferralVariationPdfBytes = MakeFakePdfBytes(
+        "Consultation Request and Referral To Cardiology Specialist Clinic We refer this patient Mr David Perera for second opinion and clinical review of chest symptoms Referring Physician Dr Nimal Silva General Practitioner");
+
+    private static readonly byte[] MedicalReportPdfBytes = MakeFakePdfBytes(
+        "General Hospital Colombo Medical Examination Clinical Report Patient Name Jane Doe Attending Physician Dr Silva MD Clinical Findings Patient presents with acute condition Diagnosis Closed displaced fracture Treatment plan Surgical reduction");
+
+    private static readonly byte[] HospitalBillPdfBytes = MakeFakePdfBytes(
+        "Asiri Central Hospital Invoice and Billing Statement Bill No INV 98241 Patient John Doe Room charges pharmacy charges Subtotal LKR 45000 Total Amount Due LKR 52500 Payment method Cash Card");
+
+    private static readonly byte[] PrescriptionPdfBytes = MakeFakePdfBytes(
+        "Dr Kamal Perera Clinic Medical Prescription Patient Saki Ki Rx Amoxicillin 500mg capsules 1 capsule 3 times daily for 7 days Paracetamol 500mg tablets 2 tablets every 6 hours Dosage PRN for pain Doctor Physician Dr Kamal Perera");
+
+    // ── Test 1: Software architecture lecture PDF tagged Doctor Referral -> Mismatch, not Verified, missing, Complete = false ──
+    [Fact]
+    public async Task Regression_Health1_ArchitecturePdfTaggedDoctorReferral_IsMismatchAndNotVerified()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Doctor Referral",
+            FileName = "06 - Architecture Patterns.pdf",
+            FileUrl = "/uploads/architecture.pdf",
+            FileSize = ArchitecturePdfBytes.Length
+        };
+
+        var evalResult = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => ArchitecturePdfBytes
+        );
+
+        Assert.True(evalResult.HasMismatches);
+        Assert.Single(evalResult.Findings);
+        Assert.Equal(DocumentVerificationStatus.Mismatch, evalResult.Findings[0].Status);
+        Assert.Contains("not appear consistent with Doctor Referral", evalResult.Findings[0].Description);
+
+        // Verify service integration
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: false,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: false,
+            AiProvider: null,
+            AiModel: null,
+            ReasoningSummary: null,
+            FallbackUsed: false
+        ));
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-01",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+        storage.SetFileBytes("/uploads/architecture.pdf", ArchitecturePdfBytes);
+        claim.Documents = new List<ClaimDocument> { doc };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+        Assert.False(verifResult.Complete);
+        Assert.Contains("Doctor Referral", verifResult.MissingItems);
+
+        var reqs = await service.GetDocumentRequirementsAsync(claimId, OwnerId, Role.Policyholder);
+        Assert.NotNull(reqs);
+        var referralReq = reqs.RequiredDocuments.First(r => r.Type == "Doctor Referral");
+        Assert.False(referralReq.Uploaded);
+        Assert.False(reqs.Complete);
+    }
+
+    // ── Test 2: Valid dummy Doctor Referral PDF -> accepted / Verified, satisfies Doctor Referral ──
+    [Fact]
+    public void Regression_Health2_ValidDummyDoctorReferral_IsAcceptedAndVerified()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Doctor Referral",
+            FileName = "dummy_doctor_referral.pdf",
+            FileUrl = "/uploads/dummy_doctor_referral.pdf",
+            FileSize = GenuineDoctorReferralPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => GenuineDoctorReferralPdfBytes
+        );
+
+        Assert.False(result.HasMismatches);
+        Assert.Empty(result.Findings);
+    }
+
+    // ── Test 3: Valid Doctor Referral wording variation -> accepted without requiring exact template ──
+    [Fact]
+    public void Regression_Health3_DoctorReferralVariation_IsAcceptedWithoutExactTemplate()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Doctor Referral",
+            FileName = "referral_specialist.pdf",
+            FileUrl = "/uploads/referral_specialist.pdf",
+            FileSize = DoctorReferralVariationPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => DoctorReferralVariationPdfBytes
+        );
+
+        Assert.False(result.HasMismatches);
+        Assert.Empty(result.Findings);
+    }
+
+    // ── Test 4: Medical Report PDF tagged Doctor Referral -> must not satisfy Doctor Referral ──
+    [Fact]
+    public void Regression_Health4_MedicalReportTaggedDoctorReferral_IsMismatch()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Doctor Referral",
+            FileName = "medical_report_as_referral.pdf",
+            FileUrl = "/uploads/medical_report.pdf",
+            FileSize = MedicalReportPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => MedicalReportPdfBytes
+        );
+
+        Assert.True(result.HasMismatches);
+        Assert.Single(result.Findings);
+        Assert.Equal(DocumentVerificationStatus.Mismatch, result.Findings[0].Status);
+    }
+
+    // ── Test 5: Hospital Bill tagged Medical Report -> Mismatch ──
+    [Fact]
+    public void Regression_Health5_HospitalBillTaggedMedicalReport_IsMismatch()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Medical Report",
+            FileName = "hospital_bill_as_report.pdf",
+            FileUrl = "/uploads/hospital_bill.pdf",
+            FileSize = HospitalBillPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => HospitalBillPdfBytes
+        );
+
+        Assert.True(result.HasMismatches);
+        Assert.Single(result.Findings);
+        Assert.Equal(DocumentVerificationStatus.Mismatch, result.Findings[0].Status);
+    }
+
+    // ── Test 6: Prescription tagged Hospital Bills -> Mismatch ──
+    [Fact]
+    public void Regression_Health6_PrescriptionTaggedHospitalBills_IsMismatch()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Hospital Bills",
+            FileName = "prescription_as_bill.pdf",
+            FileUrl = "/uploads/prescription.pdf",
+            FileSize = PrescriptionPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => PrescriptionPdfBytes
+        );
+
+        Assert.True(result.HasMismatches);
+        Assert.Single(result.Findings);
+        Assert.Equal(DocumentVerificationStatus.Mismatch, result.Findings[0].Status);
+    }
+
+    // ── Test 7: Valid Medical Report -> accepted ──
+    [Fact]
+    public void Regression_Health7_ValidMedicalReport_IsAccepted()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Medical Report",
+            FileName = "medical_report.pdf",
+            FileUrl = "/uploads/medical_report.pdf",
+            FileSize = MedicalReportPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => MedicalReportPdfBytes
+        );
+
+        Assert.False(result.HasMismatches);
+        Assert.Empty(result.Findings);
+    }
+
+    // ── Test 8: Valid Hospital Bill -> accepted ──
+    [Fact]
+    public void Regression_Health8_ValidHospitalBill_IsAccepted()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Hospital Bills",
+            FileName = "hospital_bill.pdf",
+            FileUrl = "/uploads/hospital_bill.pdf",
+            FileSize = HospitalBillPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => HospitalBillPdfBytes
+        );
+
+        Assert.False(result.HasMismatches);
+        Assert.Empty(result.Findings);
+    }
+
+    // ── Test 9: Valid Prescription -> accepted ──
+    [Fact]
+    public void Regression_Health9_ValidPrescription_IsAccepted()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Prescription",
+            FileName = "prescription.pdf",
+            FileUrl = "/uploads/prescription.pdf",
+            FileSize = PrescriptionPdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => PrescriptionPdfBytes
+        );
+
+        Assert.False(result.HasMismatches);
+        Assert.Empty(result.Findings);
+    }
+
+    // ── Test 10: Valid PDF with no extractable text, tagged Doctor Referral -> Unreadable / Needs Review ──
+    [Fact]
+    public void Regression_Health10_ValidPdfWithNoExtractableText_IsUnreadable()
+    {
+        var scannedBytes = MakeScannedPdfWithoutTextBytes();
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Doctor Referral",
+            FileName = "scanned_doctor_referral.pdf",
+            FileUrl = "/uploads/scanned.pdf",
+            FileSize = scannedBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => scannedBytes
+        );
+
+        Assert.True(result.HasUnreadable);
+        Assert.Single(result.Findings);
+        Assert.Equal(DocumentVerificationStatus.Unreadable, result.Findings[0].Status);
+        Assert.Contains("insufficient or unreadable text", result.Findings[0].Description);
+    }
+
+    // ── Test 11: Architecture PDF renamed to doctor_referral.pdf -> still mismatch based on content ──
+    [Fact]
+    public void Regression_Health11_ArchitecturePdfRenamedToDoctorReferral_StillMismatch()
+    {
+        var doc = new ClaimDocument
+        {
+            Id = Guid.NewGuid(),
+            DocumentType = "Doctor Referral",
+            FileName = "doctor_referral.pdf",
+            FileUrl = "/uploads/doctor_referral.pdf",
+            FileSize = ArchitecturePdfBytes.Length
+        };
+
+        var result = DocumentIntegrityValidator.EvaluateClaimDocuments(
+            "Health",
+            new[] { doc },
+            url => ArchitecturePdfBytes
+        );
+
+        Assert.True(result.HasMismatches);
+        Assert.Single(result.Findings);
+        Assert.Equal(DocumentVerificationStatus.Mismatch, result.Findings[0].Status);
+    }
+
+    // ── Test 12: Gemini success claiming everything is complete -> cannot override deterministic mismatch ──
+    [Fact]
+    public async Task Regression_Health12_GeminiSuccessClaimingComplete_CannotOverrideDeterministicMismatch()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: true,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: true,
+            AiProvider: "Gemini",
+            AiModel: "gemini-2.5-flash",
+            ReasoningSummary: "All health documents look completely genuine and verified.",
+            FallbackUsed: false
+        ));
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-12",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/architecture.pdf", ArchitecturePdfBytes);
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "06 - Architecture Patterns.pdf", FileUrl = "/uploads/architecture.pdf", FileSize = ArchitecturePdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var result = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+
+        // Even though Gemini claimed complete, authoritative deterministic validation must force Complete = false
+        Assert.False(result.Complete);
+        Assert.Contains("Doctor Referral", result.MissingItems);
+        Assert.Contains(result.Inconsistencies, i => i.Field == "Doctor Referral");
+    }
+
+    // ── Test 13: Gemini unavailable / 503 / 504 -> deterministic mismatch remains, Complete = false, FallbackUsed = true ──
+    [Fact]
+    public async Task Regression_Health13_GeminiUnavailableFallback_DeterministicMismatchRemains()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+        var aiClient = new FailingAiClient();
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-13",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/architecture.pdf", ArchitecturePdfBytes);
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "06 - Architecture Patterns.pdf", FileUrl = "/uploads/architecture.pdf", FileSize = ArchitecturePdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var result = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+
+        Assert.False(result.Complete);
+        Assert.True(result.FallbackUsed);
+        Assert.Contains("Doctor Referral", result.MissingItems);
+        Assert.Contains(result.Inconsistencies, i => i.Field == "Doctor Referral");
+    }
+
+    // ── Test 14: Health claim: 3 valid docs + architecture PDF tagged Doctor Referral -> Complete = false ──
+    [Fact]
+    public async Task Regression_Health14_ThreeValidDocsPlusArchitectureAsDoctorReferral_IsIncomplete()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: true,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: true,
+            AiProvider: "Gemini",
+            AiModel: "gemini-2.5-flash",
+            ReasoningSummary: "AI evaluation",
+            FallbackUsed: false
+        ));
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-14",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/med_report.pdf", MedicalReportPdfBytes);
+        storage.SetFileBytes("/uploads/hosp_bill.pdf", HospitalBillPdfBytes);
+        storage.SetFileBytes("/uploads/prescription.pdf", PrescriptionPdfBytes);
+        storage.SetFileBytes("/uploads/architecture.pdf", ArchitecturePdfBytes);
+
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Medical Report", FileName = "medical_report.pdf", FileUrl = "/uploads/med_report.pdf", FileSize = MedicalReportPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Hospital Bills", FileName = "hospital_bill.pdf", FileUrl = "/uploads/hosp_bill.pdf", FileSize = HospitalBillPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Prescription", FileName = "prescription.pdf", FileUrl = "/uploads/prescription.pdf", FileSize = PrescriptionPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "06 - Architecture Patterns.pdf", FileUrl = "/uploads/architecture.pdf", FileSize = ArchitecturePdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+        Assert.False(verifResult.Complete);
+        Assert.Contains("Doctor Referral", verifResult.MissingItems);
+
+        var reqs = await service.GetDocumentRequirementsAsync(claimId, OwnerId, Role.Policyholder);
+        Assert.NotNull(reqs);
+        Assert.Equal(3, reqs.UploadedRequiredCount);
+        Assert.Equal(1, reqs.MissingCount);
+        Assert.False(reqs.Complete);
+    }
+
+    // ── Test 15: Same Health claim with genuine Doctor Referral -> Complete = true ──
+    [Fact]
+    public async Task Regression_Health15_AllFourValidHealthDocs_IsComplete()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: true,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: true,
+            AiProvider: "Gemini",
+            AiModel: "gemini-2.5-flash",
+            ReasoningSummary: "All documents valid",
+            FallbackUsed: false
+        ));
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-15",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/med_report.pdf", MedicalReportPdfBytes);
+        storage.SetFileBytes("/uploads/hosp_bill.pdf", HospitalBillPdfBytes);
+        storage.SetFileBytes("/uploads/prescription.pdf", PrescriptionPdfBytes);
+        storage.SetFileBytes("/uploads/dummy_doctor_referral.pdf", GenuineDoctorReferralPdfBytes);
+
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Medical Report", FileName = "medical_report.pdf", FileUrl = "/uploads/med_report.pdf", FileSize = MedicalReportPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Hospital Bills", FileName = "hospital_bill.pdf", FileUrl = "/uploads/hosp_bill.pdf", FileSize = HospitalBillPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Prescription", FileName = "prescription.pdf", FileUrl = "/uploads/prescription.pdf", FileSize = PrescriptionPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "dummy_doctor_referral.pdf", FileUrl = "/uploads/dummy_doctor_referral.pdf", FileSize = GenuineDoctorReferralPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+        Assert.True(verifResult.Complete);
+        Assert.Empty(verifResult.MissingItems);
+
+        var reqs = await service.GetDocumentRequirementsAsync(claimId, OwnerId, Role.Policyholder);
+        Assert.NotNull(reqs);
+        Assert.Equal(4, reqs.UploadedRequiredCount);
+        Assert.Equal(0, reqs.MissingCount);
+        Assert.True(reqs.Complete);
+    }
+
     // ── Helper test fakes ──
 
     private class ConfigurableAiClient : IDocumentVerificationClient

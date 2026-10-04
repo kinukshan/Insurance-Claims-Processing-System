@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Application.Common.Exceptions;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PayoutProcessing.DTOs;
@@ -107,8 +108,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = PolicyClaimCompatibility.MotorInsuranceId,
             CoverageLimit = 100000m,
             Deductible = 0m, // Client attempt to set 0
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await service.CreateAsync(dto);
@@ -132,8 +133,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = PolicyClaimCompatibility.HealthInsuranceId,
             CoverageLimit = 50000m,
             Deductible = 250m, // Client attempt to set arbitrary amount
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await service.CreateAsync(dto);
@@ -157,8 +158,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = PolicyClaimCompatibility.HomeInsuranceId,
             CoverageLimit = 300000m,
             Deductible = 1000m, // Client attempt
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await service.CreateAsync(dto);
@@ -182,8 +183,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = PolicyClaimCompatibility.LifeInsuranceId,
             CoverageLimit = 250000m,
             Deductible = 5000m, // Client attempt to set 5000
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await service.CreateAsync(dto);
@@ -215,8 +216,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = Guid.Parse(typeIdStr),
             CoverageLimit = 100000m,
             Deductible = clientDeductible,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await service.CreateAsync(dto);
@@ -238,8 +239,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = unknownTypeId,
             CoverageLimit = 100000m,
             Deductible = 500m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -610,8 +611,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = PolicyClaimCompatibility.MotorInsuranceId,
             CoverageLimit = 100000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
         Assert.Equal(5m, motorResult.DeductiblePercentage);
 
@@ -621,8 +622,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = PolicyClaimCompatibility.HealthInsuranceId,
             CoverageLimit = 100000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
         Assert.Equal(10m, healthResult.DeductiblePercentage);
 
@@ -632,8 +633,8 @@ public class FixedDeductibleRegressionTests
             PolicyTypeId = PolicyClaimCompatibility.LifeInsuranceId,
             CoverageLimit = 100000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
         Assert.Equal(0m, lifeResult.DeductiblePercentage);
     }

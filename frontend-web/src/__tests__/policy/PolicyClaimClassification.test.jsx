@@ -222,8 +222,8 @@ describe('PolicyCreate Insurance Class Grouping & Fixed Deductible Rule', () => 
 
     const startDateInput = screen.getByLabelText(/Start Date/i)
     const expiryDateInput = screen.getByLabelText(/Expiry Date/i)
-    fireEvent.change(startDateInput, { target: { value: '2026-10-01' } })
-    fireEvent.change(expiryDateInput, { target: { value: '2027-10-01' } })
+    fireEvent.change(startDateInput, { target: { value: '2026-11-01' } })
+    fireEvent.change(expiryDateInput, { target: { value: '2027-11-01' } })
 
     const submitBtn = screen.getByRole('button', { name: /Create Policy/i })
     fireEvent.click(submitBtn)

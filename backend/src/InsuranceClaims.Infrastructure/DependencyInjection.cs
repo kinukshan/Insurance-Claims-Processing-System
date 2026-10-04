@@ -22,6 +22,8 @@ using InsuranceClaims.Application.PayoutProcessing.Services;
 using InsuranceClaims.Application.Authentication;
 using InsuranceClaims.Application.Notifications.Interfaces;
 using InsuranceClaims.Application.Notifications.Services;
+using InsuranceClaims.Application.Common;
+using InsuranceClaims.Application.Common.Interfaces;
 using InsuranceClaims.Infrastructure.ExternalServices.Email;
 
 namespace InsuranceClaims.Infrastructure;
@@ -76,6 +78,9 @@ public static class DependencyInjection
         }
 
         services.AddAuthorization();
+
+        // Authoritative Business Calendar (Sri Lanka standard time Asia/Colombo UTC+05:30)
+        services.AddSingleton<IBusinessCalendar, BusinessCalendar>();
 
         // Policy Management
         services.AddScoped<IPolicyService, PolicyService>();

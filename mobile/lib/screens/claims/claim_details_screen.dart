@@ -434,7 +434,10 @@ class _ClaimDetailsScreenState extends State<ClaimDetailsScreen> {
     return switch (status) {
       'Verified' => Colors.green,
       'Rejected' => Colors.red,
+      'Mismatch' => Colors.red,
+      'Unreadable' => Colors.red,
       'Flagged' => Colors.orange,
+      'NeedsReview' => Colors.orange,
       _ => Colors.grey,
     };
   }

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Application.Common.Exceptions;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PolicyManagement.Validators;
@@ -128,8 +129,8 @@ public class PolicyServiceTests
             PolicyTypeId = Guid.NewGuid(),
             CoverageLimit = 50000m,
             Deductible = 1000m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1),
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1),
             Exclusions = "Flood damage"
         };
 
@@ -146,8 +147,8 @@ public class PolicyServiceTests
             PolicyholderId = Guid.Empty,
             PolicyTypeId = Guid.NewGuid(),
             CoverageLimit = 50000m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var errors = PolicyValidator.ValidateCreate(dto);
@@ -163,8 +164,8 @@ public class PolicyServiceTests
             PolicyholderId = Guid.NewGuid(),
             PolicyTypeId = Guid.NewGuid(),
             CoverageLimit = -100m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var errors = PolicyValidator.ValidateCreate(dto);
@@ -180,8 +181,8 @@ public class PolicyServiceTests
             PolicyholderId = Guid.NewGuid(),
             PolicyTypeId = Guid.NewGuid(),
             CoverageLimit = 50000m,
-            StartDate = DateTime.UtcNow.AddYears(1),
-            ExpiryDate = DateTime.UtcNow
+            StartDate = BusinessCalendar.Default.Today.AddYears(1),
+            ExpiryDate = BusinessCalendar.Default.Today
         };
 
         var errors = PolicyValidator.ValidateCreate(dto);
@@ -198,8 +199,8 @@ public class PolicyServiceTests
             PolicyTypeId = Guid.NewGuid(),
             CoverageLimit = 50000m,
             Deductible = -500m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var errors = PolicyValidator.ValidateCreate(dto);
@@ -215,8 +216,8 @@ public class PolicyServiceTests
             PolicyholderId = Guid.NewGuid(),
             PolicyTypeId = Guid.NewGuid(),
             CoverageLimit = 50000m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1),
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1),
             Exclusions = new string('x', 2001)
         };
 

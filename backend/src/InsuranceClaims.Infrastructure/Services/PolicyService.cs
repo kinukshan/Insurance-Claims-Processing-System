@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Application.Common.Exceptions;
+using InsuranceClaims.Application.Common.Interfaces;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Application.PolicyManagement.Interfaces;
 using InsuranceClaims.Application.PolicyManagement.Validators;
@@ -19,11 +21,16 @@ public class PolicyService : IPolicyService
 {
     private readonly ApplicationDbContext _context;
     private readonly Microsoft.Extensions.Logging.ILogger<PolicyService>? _logger;
+    private readonly IBusinessCalendar _businessCalendar;
 
-    public PolicyService(ApplicationDbContext context, Microsoft.Extensions.Logging.ILogger<PolicyService>? logger = null)
+    public PolicyService(
+        ApplicationDbContext context,
+        Microsoft.Extensions.Logging.ILogger<PolicyService>? logger = null,
+        IBusinessCalendar? businessCalendar = null)
     {
         _context = context;
         _logger = logger;
+        _businessCalendar = businessCalendar ?? BusinessCalendar.Default;
     }
 
     public async Task<IEnumerable<PolicyDto>> GetAllAsync()
@@ -74,7 +81,7 @@ public class PolicyService : IPolicyService
     public async Task<PolicyDto> CreateAsync(CreatePolicyDto dto)
     {
         // Validate input
-        var errors = PolicyValidator.ValidateCreate(dto);
+        var errors = PolicyValidator.ValidateCreate(dto, _businessCalendar);
         if (errors.Count > 0)
             throw new ArgumentException(string.Join("; ", errors));
 
@@ -103,8 +110,8 @@ public class PolicyService : IPolicyService
             CoverageLimit = dto.CoverageLimit,
             Deductible = PolicyClaimCompatibility.GetFixedDeductible(policyType.Name) ?? policyType.DefaultDeductible,
             DeductiblePercentage = deductiblePercentage.Value,
-            StartDate = dto.StartDate,
-            ExpiryDate = dto.ExpiryDate,
+            StartDate = DateTime.SpecifyKind(dto.StartDate.Date, DateTimeKind.Utc),
+            ExpiryDate = DateTime.SpecifyKind(dto.ExpiryDate.Date, DateTimeKind.Utc),
             Exclusions = dto.Exclusions,
             Status = PolicyStatus.Draft,
             RenewalStatus = RenewalStatus.NotDue
@@ -220,9 +227,9 @@ public class PolicyService : IPolicyService
         // 8. Expiry date validation and update
         if (dto.ExpiryDate.HasValue)
         {
-            if (dto.ExpiryDate.Value <= policy.StartDate)
+            if (dto.ExpiryDate.Value.Date <= policy.StartDate.Date)
                 throw new ArgumentException("Expiry date must be after start date.");
-            policy.ExpiryDate = dto.ExpiryDate.Value;
+            policy.ExpiryDate = DateTime.SpecifyKind(dto.ExpiryDate.Value.Date, DateTimeKind.Utc);
         }
 
         // 9. Exclusions update
