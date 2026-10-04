@@ -1342,4 +1342,36 @@ describe('ClaimDetails Component Tests', () => {
       expect(screen.getByText(/DocumentTypeMismatch/)).toBeDefined();
     });
   });
+
+  it('48. invalid DOCX uploaded as Photos of Damage displays Rejected status and does NOT display Verified', async () => {
+    getClaim.mockResolvedValueOnce({
+      ...sampleClaim,
+      documents: [
+        {
+          id: 'doc-docx-invalid',
+          fileName: 'Assignment__ ABD (1).docx',
+          documentType: 'Photos of Damage',
+          fileSize: 15420,
+          uploadedAt: '2026-09-24T10:00:00Z',
+          verificationStatus: 'Rejected',
+        },
+      ],
+    });
+
+    render(<ClaimDetails />);
+    await waitFor(() => expect(screen.getByText('CLM-2026-0001')).toBeDefined());
+
+    // Must show Assignment__ ABD (1).docx
+    expect(screen.getByText('Assignment__ ABD (1).docx')).toBeDefined();
+
+    // Must show status Rejected
+    const statusBadges = screen.getAllByText('Rejected');
+    expect(statusBadges.length).toBeGreaterThanOrEqual(1);
+
+    // Must NOT display Verified for this document
+    expect(screen.queryByText('Verified')).toBeNull();
+
+    // Must show format notice
+    expect(screen.getByText(/File format is not valid for Photos of Damage/)).toBeDefined();
+  });
 });

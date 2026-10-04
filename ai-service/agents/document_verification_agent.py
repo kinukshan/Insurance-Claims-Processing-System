@@ -28,6 +28,9 @@ from validation.document_integrity_checker import (
     compute_sha256,
     detect_file_signature,
     normalize_doc_type_name,
+    check_format_compatibility,
+    is_format_compatible_with_extension,
+    ALLOWED_EXTENSIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,8 +80,8 @@ class DocumentVerificationAgent:
         """
         try:
             # Deterministic checks run first and are authoritative
-            missing_items = self._check_completeness(request.claim_type, request.documents)
             inconsistencies = self._check_inconsistencies(request)
+            missing_items = self._check_completeness(request.claim_type, request.documents, inconsistencies)
             warnings = self._generate_warnings(request)
             error_inconsistencies = [inc for inc in inconsistencies if inc.severity == "error"]
             is_complete = len(missing_items) == 0 and len(error_inconsistencies) == 0
@@ -188,14 +191,57 @@ class DocumentVerificationAgent:
             return "Beneficiary / Nominee Identification"
         return trimmed
 
-    def _check_completeness(self, claim_type: str, documents: list[DocumentData]) -> list[str]:
+    def _check_completeness(
+        self,
+        claim_type: str,
+        documents: list[DocumentData],
+        inconsistencies: list[DocumentInconsistency] | None = None,
+    ) -> list[str]:
         """Check which required documents are missing."""
         required = self.REQUIRED_DOCUMENTS.get(claim_type, ["Supporting Document"])
-        submitted_normalized = {
-            self._normalize_doc_type(doc.document_type).lower()
-            for doc in documents
-            if doc.document_type
-        }
+
+        # Determine which document types have format compatibility errors
+        incompatible_types = set()
+        if inconsistencies:
+            for inc in inconsistencies:
+                if inc.severity == "error" and any(k in inc.description.lower() for k in ("format", "extension", "rejected", "header signature")):
+                    if inc.field.startswith("document:"):
+                        incompatible_types.add(self._normalize_doc_type(inc.field[len("document:"):].strip()).lower())
+                    else:
+                        incompatible_types.add(self._normalize_doc_type(inc.field).lower())
+
+        submitted_normalized = set()
+        for doc in documents:
+            if not doc.document_type:
+                continue
+            norm_type = self._normalize_doc_type(doc.document_type)
+            norm_type_lower = norm_type.lower()
+
+            # Skip rejected, mismatch, or unreadable status
+            if doc.verification_status and doc.verification_status.strip().lower() in ("rejected", "mismatch", "unreadable"):
+                continue
+
+            # Skip if flagged with format incompatibility
+            if norm_type_lower in incompatible_types:
+                continue
+
+            # Validate extension / format compatibility
+            if not is_format_compatible_with_extension(doc.file_name, norm_type):
+                continue
+
+            # Check magic bytes if file is on disk
+            fp = find_file_on_disk(doc.file_url, doc.file_name)
+            if fp and os.path.isfile(fp):
+                try:
+                    with open(fp, "rb") as bf:
+                        sample = bf.read(32)
+                    sig = detect_file_signature(sample)
+                    if not check_format_compatibility(sig, norm_type)[0]:
+                        continue
+                except Exception:
+                    pass
+
+            submitted_normalized.add(norm_type_lower)
 
         missing = []
         for req_doc in required:
@@ -287,6 +333,17 @@ class DocumentVerificationAgent:
         for doc in request.documents:
             norm_type = self._normalize_doc_type(doc.document_type)
 
+            # Check if document was already marked Rejected or Mismatch by backend
+            if doc.verification_status and doc.verification_status.strip().lower() in ("rejected", "mismatch"):
+                inconsistencies.append(
+                    DocumentInconsistency(
+                        field=f"document:{doc.document_type}",
+                        description=f"Document '{doc.file_name}' uploaded under '{norm_type}' is rejected or incompatible.",
+                        severity="error",
+                    )
+                )
+                continue
+
             # Check 0 byte size passed directly on doc model
             if doc.file_size == 0:
                 inconsistencies.append(
@@ -321,6 +378,44 @@ class DocumentVerificationAgent:
                             file_bytes = bf.read(25 * 1024 * 1024)
                     except Exception as fe:
                         logger.warning("Error reading file %s: %s", file_path, fe)
+
+            # Format compatibility check
+            if file_bytes:
+                sig = detect_file_signature(file_bytes)
+                ext = os.path.splitext(doc.file_name.lower())[1] if doc.file_name else ""
+                if ext == ".pdf" and sig != "pdf":
+                    inconsistencies.append(
+                        DocumentInconsistency(
+                            field=f"document:{doc.document_type}",
+                            description=f"File '{doc.file_name}' has .pdf extension but lacks a valid PDF header signature.",
+                            severity="error",
+                        )
+                    )
+                    continue
+
+                is_compat, compat_reason = check_format_compatibility(sig, norm_type)
+                if not is_compat:
+                    inconsistencies.append(
+                        DocumentInconsistency(
+                            field=f"document:{doc.document_type}",
+                            description=f"Document type mismatch: {compat_reason}",
+                            severity="error",
+                        )
+                    )
+                    continue
+            else:
+                # File bytes not on disk — evaluate extension compatibility
+                if not is_format_compatible_with_extension(doc.file_name, norm_type):
+                    allowed = ALLOWED_EXTENSIONS.get(norm_type)
+                    accepted = ", ".join(sorted(allowed)) if allowed else "valid formats"
+                    inconsistencies.append(
+                        DocumentInconsistency(
+                            field=f"document:{doc.document_type}",
+                            description=f"Document type mismatch: File '{doc.file_name}' is not valid for '{norm_type}'. Accepted formats: {accepted}.",
+                            severity="error",
+                        )
+                    )
+                    continue
 
             # Compute or record hash for duplicate reuse detection
             file_hash = doc.file_hash

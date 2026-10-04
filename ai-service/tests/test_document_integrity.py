@@ -300,3 +300,194 @@ class TestFraudRiskAgentDocumentIntegration:
         assert result.risk_score >= 40.0
         assert result.recommendation == "escalate"
         assert any(f.flag_type == "DocumentTypeMismatch" for f in result.flags)
+
+
+class TestDocumentTypeIntegrityRegressions:
+    """
+    Comprehensive regression tests for Document Type Integrity Validation:
+    - DOCX tagged as Photos of Damage -> rejected/flagged, incomplete
+    - Valid JPEG/PNG tagged Photos of Damage -> accepted
+    - DOCX renamed to .jpg -> rejected based on actual magic bytes
+    - Police Report, Repair Estimate, Driver License format rules
+    - Motor claim with valid docs + invalid DOCX pretending to be Photos of Damage -> complete = false
+    - Motor claim with valid image -> complete = true
+    - Gemini safety (success or failure must not override deterministic decisions)
+    """
+
+    DOCX_BYTES = b"PK\x03\x04\x14\x00\x06\x00\x08\x00"
+    JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01"
+    PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\r"
+
+    def test_docx_tagged_photos_of_damage_returns_incomplete_and_inconsistency(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        docs = [
+            DocumentData(
+                document_type="Photos of Damage",
+                file_name="Assignment__ ABD (1).docx",
+            )
+        ]
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-001",
+            claim_type="Motor",
+            incident_date=date.today().isoformat(),
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert "Photos of Damage" in result.missing_items
+        assert any("Photos of Damage" in inc.field for inc in result.inconsistencies)
+
+    def test_valid_jpeg_tagged_photos_of_damage_accepted(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        docs = [
+            DocumentData(
+                document_type="Photos of Damage",
+                file_name="damage.jpg",
+            )
+        ]
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-002",
+            claim_type="Motor",
+            incident_date=date.today().isoformat(),
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert "Photos of Damage" not in result.missing_items
+        assert not any("Photos of Damage" in inc.field for inc in result.inconsistencies)
+
+    def test_valid_png_tagged_photos_of_damage_accepted(self):
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        docs = [
+            DocumentData(
+                document_type="Photos of Damage",
+                file_name="damage.png",
+            )
+        ]
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-003",
+            claim_type="Motor",
+            incident_date=date.today().isoformat(),
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert "Photos of Damage" not in result.missing_items
+        assert not any("Photos of Damage" in inc.field for inc in result.inconsistencies)
+
+    def test_docx_renamed_to_jpg_rejected_by_magic_bytes(self, tmp_path):
+        # Create a file named damage.jpg whose actual bytes are a zip/docx
+        fake_jpg = tmp_path / "sneaky_damage.jpg"
+        fake_jpg.write_bytes(self.DOCX_BYTES)
+
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        docs = [
+            DocumentData(
+                document_type="Photos of Damage",
+                file_name="sneaky_damage.jpg",
+                file_url=str(fake_jpg),
+            )
+        ]
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-004",
+            claim_type="Motor",
+            incident_date=date.today().isoformat(),
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert "Photos of Damage" in result.missing_items
+        assert any("zip_archive" in inc.description or "not valid" in inc.description for inc in result.inconsistencies)
+
+    def test_motor_claim_with_invalid_docx_damage_photo_is_incomplete(self):
+        today = date.today().isoformat()
+        docs = [
+            DocumentData(document_type="Police Report", file_name="police.pdf", uploaded_at=today),
+            DocumentData(document_type="Repair Estimate", file_name="estimate.pdf", uploaded_at=today),
+            DocumentData(document_type="Driver License", file_name="license.pdf", uploaded_at=today),
+            DocumentData(document_type="Photos of Damage", file_name="Assignment__ ABD (1).docx", uploaded_at=today),
+        ]
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-005",
+            claim_type="Motor",
+            incident_date=today,
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert "Photos of Damage" in result.missing_items
+        assert any("Photos of Damage" in inc.field for inc in result.inconsistencies)
+
+    def test_motor_claim_with_valid_damage_image_is_complete(self):
+        today = date.today().isoformat()
+        docs = [
+            DocumentData(document_type="Police Report", file_name="police.pdf", uploaded_at=today),
+            DocumentData(document_type="Repair Estimate", file_name="estimate.pdf", uploaded_at=today),
+            DocumentData(document_type="Driver License", file_name="license.pdf", uploaded_at=today),
+            DocumentData(document_type="Photos of Damage", file_name="damage.jpg", uploaded_at=today),
+        ]
+        agent = DocumentVerificationAgent(gemini_client_instance=None)
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-006",
+            claim_type="Motor",
+            incident_date=today,
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert result.complete is True
+        assert len(result.missing_items) == 0
+
+    def test_gemini_success_cannot_override_deterministic_invalid_result(self):
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.return_value = "All documents look great, verification approved."
+
+        today = date.today().isoformat()
+        docs = [
+            DocumentData(document_type="Police Report", file_name="police.pdf", uploaded_at=today),
+            DocumentData(document_type="Repair Estimate", file_name="estimate.pdf", uploaded_at=today),
+            DocumentData(document_type="Driver License", file_name="license.pdf", uploaded_at=today),
+            DocumentData(document_type="Photos of Damage", file_name="Assignment__ ABD (1).docx", uploaded_at=today),
+        ]
+        agent = DocumentVerificationAgent(gemini_client_instance=mock_gemini)
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-007",
+            claim_type="Motor",
+            incident_date=today,
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        # Even though Gemini returned glowing text, complete must remain False deterministically
+        assert result.complete is False
+        assert "Photos of Damage" in result.missing_items
+
+    def test_gemini_fallback_preserves_deterministic_incomplete_decision(self):
+        mock_gemini = MagicMock()
+        mock_gemini.is_available = True
+        mock_gemini.generate_text.side_effect = RuntimeError("Gemini unreachable")
+
+        today = date.today().isoformat()
+        docs = [
+            DocumentData(document_type="Police Report", file_name="police.pdf", uploaded_at=today),
+            DocumentData(document_type="Repair Estimate", file_name="estimate.pdf", uploaded_at=today),
+            DocumentData(document_type="Driver License", file_name="license.pdf", uploaded_at=today),
+            DocumentData(document_type="Photos of Damage", file_name="Assignment__ ABD (1).docx", uploaded_at=today),
+        ]
+        agent = DocumentVerificationAgent(gemini_client_instance=mock_gemini)
+        request = DocumentVerificationRequest(
+            claim_id="reg-claim-008",
+            claim_type="Motor",
+            incident_date=today,
+            claimed_amount=5000.0,
+            documents=docs,
+        )
+        result = agent.verify(request)
+        assert result.complete is False
+        assert result.fallback_used is True
+        assert "Photos of Damage" in result.missing_items
