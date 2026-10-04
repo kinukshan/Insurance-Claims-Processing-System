@@ -668,9 +668,20 @@ internal class FakeClaimRepository : IClaimRepository
 
 internal class FakeDocumentStorageService : IDocumentStorageService
 {
+    private readonly Dictionary<string, byte[]> _files = new(StringComparer.OrdinalIgnoreCase);
+
     public bool ShouldFail { get; set; } = false;
     public bool ShouldThrow { get; set; } = false;
     public int DeleteCallCount { get; private set; } = 0;
+
+    public void SetFileBytes(string fileUrl, byte[] bytes) => _files[fileUrl] = bytes;
+
+    public Task<byte[]?> GetFileBytesAsync(string fileUrl)
+    {
+        if (_files.TryGetValue(fileUrl, out var bytes))
+            return Task.FromResult<byte[]?>(bytes);
+        return Task.FromResult<byte[]?>(null);
+    }
 
     public Task<string> UploadAsync(string fileName, string contentType, Stream fileStream) =>
         Task.FromResult($"/uploads/fake_{fileName}");

@@ -261,6 +261,28 @@ public class ClaimService : IClaimService
         // Upload file to storage
         var fileUrl = await _storageService.UploadAsync(dto.FileName, dto.ContentType, dto.FileStream);
 
+        // Authoritative format compatibility check on upload
+        var normType = DocumentIntegrityValidator.NormalizeDocumentType(dto.DocumentType);
+        var bytes = await _storageService.GetFileBytesAsync(fileUrl);
+        var initialStatus = DocumentVerificationStatus.Pending;
+
+        if (bytes != null && bytes.Length > 0)
+        {
+            var sig = DocumentIntegrityValidator.DetectFileSignature(bytes);
+            var (isCompatible, _) = DocumentIntegrityValidator.CheckFormatCompatibility(sig, normType);
+            if (!isCompatible)
+            {
+                initialStatus = DocumentVerificationStatus.Rejected;
+            }
+        }
+        else
+        {
+            if (!DocumentIntegrityValidator.IsFormatCompatibleWithExtension(dto.FileName, normType))
+            {
+                initialStatus = DocumentVerificationStatus.Rejected;
+            }
+        }
+
         var document = new ClaimDocument
         {
             Id = Guid.NewGuid(),
@@ -271,7 +293,7 @@ public class ClaimService : IClaimService
             ContentType = dto.ContentType,
             FileSize = dto.FileSize,
             UploadedAt = DateTime.UtcNow,
-            VerificationStatus = DocumentVerificationStatus.Pending
+            VerificationStatus = initialStatus
         };
 
         claim.Documents.Add(document);
@@ -458,7 +480,19 @@ public class ClaimService : IClaimService
             }
         }
 
-        var isComplete = aiResult.Complete && !localEval.HasMismatches && !localEval.HasUnreadable;
+        // Recompute missing required documents deterministically
+        var requiredDocs = DocumentChecklistValidator.GetRequiredDocuments(claim.ClaimType.ToString());
+        var missingItems = new List<string>(aiResult.MissingItems ?? new List<string>());
+        foreach (var finding in localEval.Findings)
+        {
+            var reqMatch = requiredDocs.FirstOrDefault(r => DocumentChecklistValidator.NormalizeDocumentType(r).Equals(finding.DocumentType, StringComparison.OrdinalIgnoreCase));
+            if (reqMatch != null && !missingItems.Contains(reqMatch, StringComparer.OrdinalIgnoreCase))
+            {
+                missingItems.Add(reqMatch);
+            }
+        }
+
+        var isComplete = aiResult.Complete && !localEval.HasMismatches && !localEval.HasUnreadable && missingItems.Count == 0;
 
         Guid attemptId;
         if (existingAttempt != null)
@@ -486,6 +520,7 @@ public class ClaimService : IClaimService
         return aiResult with
         {
             Complete = isComplete,
+            MissingItems = missingItems,
             Inconsistencies = mergedInconsistencies,
             AttemptId = attemptId
         };
@@ -503,9 +538,18 @@ public class ClaimService : IClaimService
         var claimTypeStr = claim.ClaimType.ToString();
         var requiredList = DocumentChecklistValidator.GetRequiredDocuments(claimTypeStr);
 
+        var validDocs = (claim.Documents ?? new List<ClaimDocument>())
+            .Where(d => d.VerificationStatus != DocumentVerificationStatus.Rejected &&
+                        d.VerificationStatus != DocumentVerificationStatus.Mismatch &&
+                        d.VerificationStatus != DocumentVerificationStatus.Unreadable)
+            .Where(d =>
+            {
+                var norm = DocumentIntegrityValidator.NormalizeDocumentType(d.DocumentType);
+                return DocumentIntegrityValidator.IsFormatCompatibleWithExtension(d.FileName, norm);
+            });
+
         var submittedNormalized = new HashSet<string>(
-            (claim.Documents ?? new List<ClaimDocument>())
-                .Select(d => DocumentChecklistValidator.NormalizeDocumentType(d.DocumentType)),
+            validDocs.Select(d => DocumentChecklistValidator.NormalizeDocumentType(d.DocumentType)),
             StringComparer.OrdinalIgnoreCase);
 
         var items = requiredList.Select(req =>

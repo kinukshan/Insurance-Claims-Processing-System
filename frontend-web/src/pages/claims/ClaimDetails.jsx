@@ -1039,31 +1039,48 @@ function ClaimDetails() {
 
         {claim.documents?.length > 0 ? (
           <div className="document-list">
-            {claim.documents.map((doc) => (
-              <div key={doc.id} className="document-item" id={`doc-${doc.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
-                  <div className="document-icon">📄</div>
-                  <div className="document-info">
-                    <h4>{doc.fileName}</h4>
-                    <p>{doc.documentType} • {formatFileSize(doc.fileSize)} • {formatDate(doc.uploadedAt)}</p>
+            {claim.documents.map((doc) => {
+              const docInconsistency = normVerif?.inconsistencies?.find(inc =>
+                inc.field?.toLowerCase() === doc.documentType?.toLowerCase() ||
+                inc.field?.toLowerCase() === `document:${doc.documentType?.toLowerCase()}` ||
+                inc.description?.toLowerCase().includes(doc.fileName?.toLowerCase())
+              );
+              return (
+                <div key={doc.id} className="document-item" id={`doc-${doc.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
+                    <div className="document-icon">📄</div>
+                    <div className="document-info">
+                      <h4>{doc.fileName}</h4>
+                      <p>{doc.documentType} • {formatFileSize(doc.fileSize)} • {formatDate(doc.uploadedAt)}</p>
+                      {docInconsistency && (
+                        <p style={{ color: 'var(--color-rejected)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                          ⚠️ {docInconsistency.description}
+                        </p>
+                      )}
+                      {!docInconsistency && (doc.verificationStatus === 'Rejected' || doc.verificationStatus === 'Mismatch') && (
+                        <p style={{ color: 'var(--color-rejected)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                          ⚠️ File format is not valid for {doc.documentType}.
+                        </p>
+                      )}
+                    </div>
+                    <span className={getVerifStatusClass(doc.verificationStatus)}>
+                      {doc.verificationStatus}
+                    </span>
                   </div>
-                  <span className={getVerifStatusClass(doc.verificationStatus)}>
-                    {doc.verificationStatus}
-                  </span>
+                  {canDeleteDocument && (
+                    <button
+                      id={`delete-doc-${doc.id}`}
+                      className="btn btn--secondary btn--sm"
+                      style={{ color: 'var(--color-rejected)', borderColor: 'rgba(239, 68, 68, 0.3)', marginLeft: '1rem' }}
+                      onClick={() => handleDeleteDocument(doc)}
+                      disabled={actionLoading === `doc-delete-${doc.id}`}
+                    >
+                      {actionLoading === `doc-delete-${doc.id}` ? 'Deleting…' : 'Delete'}
+                    </button>
+                  )}
                 </div>
-                {canDeleteDocument && (
-                  <button
-                    id={`delete-doc-${doc.id}`}
-                    className="btn btn--secondary btn--sm"
-                    style={{ color: 'var(--color-rejected)', borderColor: 'rgba(239, 68, 68, 0.3)', marginLeft: '1rem' }}
-                    onClick={() => handleDeleteDocument(doc)}
-                    disabled={actionLoading === `doc-delete-${doc.id}`}
-                  >
-                    {actionLoading === `doc-delete-${doc.id}` ? 'Deleting…' : 'Delete'}
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="empty-state" style={{ padding: '2rem' }}>
@@ -1085,7 +1102,7 @@ function ClaimDetails() {
                 ref={fileInputRef}
                 type="file"
                 onChange={(e) => setUploadFile(e.target.files[0])}
-                accept="image/*,.pdf,.doc,.docx,.txt"
+                accept={uploadDocType === 'Photos of Damage' ? 'image/jpeg,image/png,image/webp' : 'image/*,.pdf,.doc,.docx,.txt'}
               />
             </div>
             <div className="form-group" style={{ minWidth: '180px', marginBottom: 0 }}>

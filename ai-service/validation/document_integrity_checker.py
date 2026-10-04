@@ -312,7 +312,76 @@ def detect_file_signature(data: bytes) -> str:
         return "png"
     if data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
         return "webp"
+    # DOCX / XLSX / ZIP archives (PK\x03\x04)
+    if data.startswith(b"PK\x03\x04"):
+        return "zip_archive"
     return "unknown"
+
+
+ALLOWED_FILE_SIGNATURES: Dict[str, set[str]] = {
+    "Photos of Damage": {"jpeg", "png", "webp"},
+    "Police Report": {"pdf"},
+    "Repair Estimate": {"pdf"},
+    "Driver License": {"jpeg", "png", "webp", "pdf"},
+    "Death Certificate": {"pdf"},
+    "Medical Report": {"pdf"},
+    "Hospital Bills": {"pdf"},
+    "Prescription": {"pdf", "jpeg", "png"},
+    "Doctor Referral": {"pdf"},
+    "Property Deed": {"pdf"},
+    "Property Valuation": {"pdf"},
+    "Beneficiary / Nominee Identification": {"pdf", "jpeg", "png"},
+    "Policy Document": {"pdf"},
+    "Claim Form": {"pdf"},
+    "Travel Itinerary": {"pdf"},
+}
+
+ALLOWED_EXTENSIONS: Dict[str, set[str]] = {
+    "Photos of Damage": {".jpg", ".jpeg", ".png", ".webp"},
+    "Police Report": {".pdf"},
+    "Repair Estimate": {".pdf"},
+    "Driver License": {".jpg", ".jpeg", ".png", ".webp", ".pdf"},
+    "Death Certificate": {".pdf"},
+    "Medical Report": {".pdf"},
+    "Hospital Bills": {".pdf"},
+    "Prescription": {".pdf", ".jpg", ".jpeg", ".png"},
+    "Doctor Referral": {".pdf"},
+    "Property Deed": {".pdf"},
+    "Property Valuation": {".pdf"},
+    "Beneficiary / Nominee Identification": {".pdf", ".jpg", ".jpeg", ".png"},
+    "Policy Document": {".pdf"},
+    "Claim Form": {".pdf"},
+    "Travel Itinerary": {".pdf"},
+}
+
+
+def check_format_compatibility(detected_sig: str, doc_type: str) -> Tuple[bool, str]:
+    """
+    Checks whether the detected file signature is allowed for the given document type.
+    Returns (is_compatible, reason).
+    """
+    norm_type = normalize_doc_type_name(doc_type)
+    allowed = ALLOWED_FILE_SIGNATURES.get(norm_type)
+    if allowed is None:
+        return True, f"Document type '{norm_type}' accepts any valid file format."
+    if detected_sig in allowed:
+        return True, f"File format '{detected_sig}' is valid for '{norm_type}'."
+    accepted_str = ", ".join(sorted(allowed))
+    return False, f"File type '{detected_sig}' is not valid for '{norm_type}'. Accepted formats: {accepted_str}."
+
+
+def is_format_compatible_with_extension(file_name: str, doc_type: str) -> bool:
+    """
+    Fallback extension check when physical file bytes are unavailable.
+    """
+    if not file_name:
+        return False
+    _, ext = os.path.splitext(file_name.lower())
+    norm_type = normalize_doc_type_name(doc_type)
+    allowed = ALLOWED_EXTENSIONS.get(norm_type)
+    if allowed is None:
+        return True
+    return ext in allowed
 
 
 def compute_sha256(data: bytes) -> str:
@@ -322,6 +391,9 @@ def compute_sha256(data: bytes) -> str:
 
 def find_file_on_disk(file_url: Optional[str], file_name: Optional[str]) -> Optional[str]:
     """Locates an uploaded file on disk safely."""
+    if file_url and os.path.isfile(file_url):
+        return os.path.abspath(file_url)
+
     candidates = []
     if file_url:
         candidates.append(file_url.lstrip("/"))
@@ -417,7 +489,7 @@ def evaluate_content_consistency(
 
     # Image-based document types (e.g., Photos of Damage) don't require text
     if norm_claimed == "Photos of Damage":
-        return False, None, "Photos of damage verified as visual evidence."
+        return False, None, "Photos of Damage format compatibility validated separately via file signature check."
 
     # If text is too short to evaluate (< 30 characters), rely on secondary checks only
     if len(text_lower.strip()) < 30:

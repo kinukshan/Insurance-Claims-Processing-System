@@ -17,6 +17,30 @@ public static class DocumentIntegrityValidator
 {
     private const int MaxParseSizeBytes = 25 * 1024 * 1024; // 25 MB
 
+    /// <summary>
+    /// Maps DocumentType to allowed file signatures (magic byte formats).
+    /// Documents whose actual file signature is not in this set are rejected.
+    /// Types not listed here accept any non-empty file (backward compatible).
+    /// </summary>
+    private static readonly Dictionary<string, HashSet<string>> AllowedFileSignatures = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Photos of Damage"] = new(StringComparer.OrdinalIgnoreCase) { "jpeg", "png", "webp" },
+        ["Police Report"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Repair Estimate"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Driver License"] = new(StringComparer.OrdinalIgnoreCase) { "jpeg", "png", "webp", "pdf" },
+        ["Death Certificate"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Medical Report"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Hospital Bills"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Prescription"] = new(StringComparer.OrdinalIgnoreCase) { "pdf", "jpeg", "png" },
+        ["Doctor Referral"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Property Deed"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Property Valuation"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Beneficiary / Nominee Identification"] = new(StringComparer.OrdinalIgnoreCase) { "pdf", "jpeg", "png" },
+        ["Policy Document"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Claim Form"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+        ["Travel Itinerary"] = new(StringComparer.OrdinalIgnoreCase) { "pdf" },
+    };
+
     private static readonly Dictionary<string, (string[] Primary, string[] Secondary)> DocumentSignals = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Police Report"] = (
@@ -106,7 +130,64 @@ public static class DocumentIntegrityValidator
         if (bytes.Length >= 12 &&
             bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 && // RIFF
             bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) return "webp"; // WEBP
+        // DOCX / XLSX / ZIP archives (PK\x03\x04)
+        if (bytes[0] == 0x50 && bytes[1] == 0x4B && bytes[2] == 0x03 && bytes[3] == 0x04) return "zip_archive";
         return "unknown";
+    }
+
+    /// <summary>
+    /// Checks whether the detected file signature is allowed for the given document type.
+    /// Returns (isCompatible, reason).
+    /// </summary>
+    public static (bool IsCompatible, string Reason) CheckFormatCompatibility(string detectedSignature, string normalizedDocType)
+    {
+        if (!AllowedFileSignatures.TryGetValue(normalizedDocType, out var allowed))
+        {
+            // Document type not in the mapping — allow any non-empty file (backward compatible)
+            return (true, $"Document type '{normalizedDocType}' accepts any valid file format.");
+        }
+
+        if (allowed.Contains(detectedSignature))
+        {
+            return (true, $"File format '{detectedSignature}' is valid for '{normalizedDocType}'.");
+        }
+
+        var acceptedList = string.Join(", ", allowed);
+        return (false, $"File type '{detectedSignature}' is not valid for '{normalizedDocType}'. Accepted formats: {acceptedList}.");
+    }
+
+    /// <summary>
+    /// Fallback extension mapping for when file bytes are not yet loaded or in tests.
+    /// Actual file signature check remains authoritative whenever file bytes are available.
+    /// </summary>
+    private static readonly Dictionary<string, HashSet<string>> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Photos of Damage"] = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" },
+        ["Police Report"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Repair Estimate"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Driver License"] = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp", ".pdf" },
+        ["Death Certificate"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Medical Report"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Hospital Bills"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Prescription"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".jpg", ".jpeg", ".png" },
+        ["Doctor Referral"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Property Deed"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Property Valuation"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Beneficiary / Nominee Identification"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".jpg", ".jpeg", ".png" },
+        ["Policy Document"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Claim Form"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+        ["Travel Itinerary"] = new(StringComparer.OrdinalIgnoreCase) { ".pdf" },
+    };
+
+    public static bool IsFormatCompatibleWithExtension(string fileName, string normalizedDocType)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return false;
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        if (!AllowedExtensions.TryGetValue(normalizedDocType, out var allowed))
+        {
+            return true;
+        }
+        return allowed.Contains(ext);
     }
 
     public static string ExtractTextSafely(byte[] bytes, string fileName)
@@ -287,9 +368,11 @@ public static class DocumentIntegrityValidator
         string text, string claimedType, string fileName = "")
     {
         var normClaimed = NormalizeDocumentType(claimedType);
+        // Photos of Damage are image files — format compatibility is checked by CheckFormatCompatibility.
+        // Text-based content consistency is not applicable to image document types.
         if (normClaimed == "Photos of Damage")
         {
-            return (false, null, "Photos of damage verified as visual evidence.");
+            return (false, null, "Photos of Damage format compatibility validated separately via file signature check.");
         }
 
         if (string.IsNullOrWhiteSpace(text) || text.Trim().Length < 30)
@@ -378,6 +461,21 @@ public static class DocumentIntegrityValidator
             // 1. File size / readability check
             if (bytes == null || bytes.Length == 0)
             {
+                if (!IsFormatCompatibleWithExtension(doc.FileName, normType))
+                {
+                    var allowedList = AllowedExtensions.TryGetValue(normType, out var exts) ? string.Join(", ", exts) : "";
+                    findings.Add(new DocumentIntegrityFinding(
+                        doc.Id,
+                        normType,
+                        doc.FileName,
+                        FraudFlagType.DocumentTypeMismatch,
+                        FlagSeverity.High,
+                        $"File type is not valid for '{normType}'. Accepted formats: {allowedList}.",
+                        DocumentVerificationStatus.Rejected
+                    ));
+                    continue;
+                }
+
                 if (doc.FileSize == 0)
                 {
                     findings.Add(new DocumentIntegrityFinding(
@@ -418,6 +516,23 @@ public static class DocumentIntegrityValidator
                         FlagSeverity.High,
                         $"File '{doc.FileName}' has .pdf extension but lacks a valid PDF header signature.",
                         DocumentVerificationStatus.Unreadable
+                    ));
+                    continue;
+                }
+
+                // 3b. Format compatibility check — reject files whose actual signature
+                //     is incompatible with the declared DocumentType (e.g., DOCX as "Photos of Damage")
+                var (isCompatible, compatReason) = CheckFormatCompatibility(sig, normType);
+                if (!isCompatible)
+                {
+                    findings.Add(new DocumentIntegrityFinding(
+                        doc.Id,
+                        normType,
+                        doc.FileName,
+                        FraudFlagType.DocumentTypeMismatch,
+                        FlagSeverity.High,
+                        compatReason,
+                        DocumentVerificationStatus.Rejected
                     ));
                     continue;
                 }
@@ -466,6 +581,18 @@ public static class DocumentIntegrityValidator
                     FlagSeverity.High,
                     $"Document '{doc.FileName}' uploaded under '{normType}' is unreadable.",
                     DocumentVerificationStatus.Unreadable
+                ));
+            }
+            else if (doc.VerificationStatus == DocumentVerificationStatus.Rejected)
+            {
+                findings.Add(new DocumentIntegrityFinding(
+                    doc.Id,
+                    normType,
+                    doc.FileName,
+                    FraudFlagType.DocumentTypeMismatch,
+                    FlagSeverity.High,
+                    $"Document '{doc.FileName}' uploaded under '{normType}' was rejected due to incompatibility.",
+                    DocumentVerificationStatus.Rejected
                 ));
             }
         }
