@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Application.Common.Exceptions;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Domain.PolicyManagement;
@@ -135,8 +136,8 @@ public class InsuranceClassAndCompatibilityTests
             PolicyTypeId = lifeType.Id,
             CoverageLimit = 500000m,
             Deductible = 5000m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await service.CreateAsync(dto);
@@ -266,8 +267,8 @@ public class InsuranceClassAndCompatibilityTests
             PolicyTypeId = motorType.Id,
             CoverageLimit = 500000m,
             Deductible = 2500m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         };
 
         var result = await service.CreateAsync(dto);
@@ -351,8 +352,8 @@ public class InsuranceClassAndCompatibilityTests
             PolicyTypeId = PolicyClaimCompatibility.LifeInsuranceId,
             CoverageLimit = 1000000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         var policies = await service.GetByPolicyholderIdAsync(ownerId);

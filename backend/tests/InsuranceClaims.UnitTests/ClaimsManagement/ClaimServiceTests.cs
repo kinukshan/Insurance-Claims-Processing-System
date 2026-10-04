@@ -1,6 +1,7 @@
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Services;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.Users;
@@ -64,7 +65,7 @@ public class ClaimServiceTests
     [Fact]
     public async Task CreateClaim_WithFutureDate_Throws()
     {
-        var dto = MakeCreateDto() with { IncidentDate = DateTime.UtcNow.AddDays(1) };
+        var dto = MakeCreateDto() with { IncidentDate = BusinessCalendar.Default.Today.AddDays(1) };
         await Assert.ThrowsAsync<ArgumentException>(() =>
             _service.CreateClaimAsync(UserId, dto));
     }

@@ -1,4 +1,6 @@
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
+using InsuranceClaims.Application.Common;
+using InsuranceClaims.Application.Common.Interfaces;
 
 namespace InsuranceClaims.Application.ClaimsManagement.Validators;
 
@@ -7,7 +9,7 @@ namespace InsuranceClaims.Application.ClaimsManagement.Validators;
 /// </summary>
 public static class CreateClaimValidator
 {
-    public static List<string> Validate(CreateClaimDto dto)
+    public static List<string> Validate(CreateClaimDto dto, IBusinessCalendar? calendar = null)
     {
         var errors = new List<string>();
 
@@ -20,10 +22,12 @@ public static class CreateClaimValidator
         if (dto.ClaimedAmount <= 0)
             errors.Add("ClaimedAmount must be greater than zero.");
 
-        if (dto.IncidentDate > DateTime.UtcNow)
+        var businessToday = (calendar ?? BusinessCalendar.Default).Today;
+
+        if (dto.IncidentDate.Date > businessToday)
             errors.Add("IncidentDate cannot be in the future.");
 
-        if (dto.IncidentDate < DateTime.UtcNow.AddYears(-10))
+        if (dto.IncidentDate.Date < businessToday.AddYears(-10))
             errors.Add("IncidentDate cannot be more than 10 years ago.");
 
         if (string.IsNullOrWhiteSpace(dto.IncidentLocation))
@@ -38,14 +42,16 @@ public static class CreateClaimValidator
 /// </summary>
 public static class UpdateClaimValidator
 {
-    public static List<string> Validate(UpdateClaimDto dto)
+    public static List<string> Validate(UpdateClaimDto dto, IBusinessCalendar? calendar = null)
     {
         var errors = new List<string>();
 
         if (dto.ClaimedAmount.HasValue && dto.ClaimedAmount.Value <= 0)
             errors.Add("ClaimedAmount must be greater than zero.");
 
-        if (dto.IncidentDate.HasValue && dto.IncidentDate.Value > DateTime.UtcNow)
+        var businessToday = (calendar ?? BusinessCalendar.Default).Today;
+
+        if (dto.IncidentDate.HasValue && dto.IncidentDate.Value.Date > businessToday)
             errors.Add("IncidentDate cannot be in the future.");
 
         if (dto.Description is not null && string.IsNullOrWhiteSpace(dto.Description))

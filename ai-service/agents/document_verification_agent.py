@@ -207,7 +207,7 @@ class DocumentVerificationAgent:
                 if inc.severity == "error" and any(k in inc.description.lower() for k in ("format", "extension", "rejected", "header signature")):
                     if inc.field.startswith("document:"):
                         incompatible_types.add(self._normalize_doc_type(inc.field[len("document:"):].strip()).lower())
-                    else:
+                    elif not inc.field.startswith("incident_date") and not inc.field.startswith("claimed_amount") and not inc.field.startswith("documents:"):
                         incompatible_types.add(self._normalize_doc_type(inc.field).lower())
 
         submitted_normalized = set()
@@ -428,7 +428,8 @@ class DocumentVerificationAgent:
                 doc_hashes[file_hash].append(norm_type)
 
             # Extract text from PDF if not provided
-            if not extracted_text and file_path and (doc.file_name.lower().endswith(".pdf") or (doc.content_type and "pdf" in doc.content_type.lower())):
+            is_pdf = (doc.file_name and doc.file_name.lower().endswith(".pdf")) or (doc.content_type and "pdf" in doc.content_type.lower())
+            if not extracted_text and file_path and is_pdf:
                 text_res, err = extract_pdf_text_safe(file_path)
                 if err and "empty" in err.lower():
                     inconsistencies.append(
@@ -442,8 +443,22 @@ class DocumentVerificationAgent:
                 elif text_res:
                     extracted_text = text_res
 
+            # Scanned / non-text PDF safety: If it's a PDF and has no or insufficient text (< 30 chars),
+            # mark it unreadable (cannot be deterministically verified without OCR).
+            # Only evaluate this if physical file bytes / file on disk were inspected, or extracted_text was explicitly provided.
+            if is_pdf and (file_path or file_bytes or doc.extracted_text is not None):
+                if not extracted_text or len(extracted_text.strip()) < 30:
+                    inconsistencies.append(
+                        DocumentInconsistency(
+                            field=f"document:{doc.document_type}",
+                            description=f"Unreadable required document: '{doc.file_name}' for '{doc.document_type}' contains insufficient or unreadable text (scanned or image-only PDF requires review).",
+                            severity="error",
+                        )
+                    )
+                    continue
+
             # Check content consistency / mismatch
-            if extracted_text:
+            if extracted_text and len(extracted_text.strip()) >= 30:
                 is_mismatch, detected_other, expl = evaluate_content_consistency(
                     extracted_text, norm_type, doc.file_name
                 )

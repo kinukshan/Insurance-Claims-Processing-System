@@ -1374,4 +1374,66 @@ describe('ClaimDetails Component Tests', () => {
     // Must show format notice
     expect(screen.getByText(/File format is not valid for Photos of Damage/)).toBeDefined();
   });
+
+  it('49. Architecture PDF uploaded as Doctor Referral displays Mismatch status and explanation, and does NOT display Verified', async () => {
+    getClaim.mockResolvedValueOnce({
+      ...sampleClaim,
+      claimType: 'Health',
+      documents: [
+        {
+          id: 'doc-arch-mismatch',
+          fileName: '06 - Architecture Patterns.pdf',
+          documentType: 'Doctor Referral',
+          fileSize: 45000,
+          uploadedAt: '2026-09-24T10:00:00Z',
+          verificationStatus: 'Mismatch',
+        },
+      ],
+    });
+
+    render(<ClaimDetails />);
+    await waitFor(() => expect(screen.getByText('CLM-2026-0001')).toBeDefined());
+
+    // Must show document name
+    expect(screen.getByText('06 - Architecture Patterns.pdf')).toBeDefined();
+
+    // Must show status Mismatch
+    const statusBadges = screen.getAllByText('Mismatch');
+    expect(statusBadges.length).toBeGreaterThanOrEqual(1);
+
+    // Must NOT display Verified for this document
+    expect(screen.queryByText('Verified')).toBeNull();
+
+    // Must show mismatch notice
+    expect(screen.getByText(/The document content does not appear consistent with Doctor Referral/)).toBeDefined();
+  });
+
+  it('50. Verification result panel displays Needs Review when content mismatch inconsistency is returned', async () => {
+    mockAuthRole = 'ClaimsAdjuster';
+    startWorkflow.mockResolvedValueOnce({
+      complete: false,
+      missingItems: ['Doctor Referral'],
+      inconsistencies: [
+        {
+          field: 'document:Doctor Referral',
+          description: "Document type mismatch: The document content does not appear consistent with Doctor Referral.",
+          severity: 'error',
+        },
+      ],
+      warnings: [],
+      fallbackUsed: false,
+    });
+
+    render(<ClaimDetails />);
+    await waitFor(() => expect(screen.getByText('CLM-2026-0001')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /verify documents/i }));
+
+    await waitFor(() => {
+      // Must show Needs Review badge
+      expect(screen.getByText('Needs Review')).toBeDefined();
+      // Must show missing Doctor Referral
+      expect(screen.getAllByText('Doctor Referral').length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

@@ -289,8 +289,8 @@ void main() {
       expect(json['policyTypeId'], 'type-456');
       expect(json['coverageLimit'], 750000.0);
       expect(json['deductible'], 15000.0);
-      expect(json['startDate'], '2026-09-28T00:00:00.000Z');
-      expect(json['expiryDate'], '2027-09-28T00:00:00.000Z');
+      expect(json['startDate'], '2026-09-28');
+      expect(json['expiryDate'], '2027-09-28');
       expect(json['exclusions'], 'Flood, earthquake');
     });
 

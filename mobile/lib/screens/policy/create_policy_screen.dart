@@ -46,8 +46,8 @@ class _CreatePolicyScreenState extends State<CreatePolicyScreen> {
   bool _loadingTypes = true;
   String? _typesError;
 
-  DateTime _startDate = DateTime.now();
-  DateTime _expiryDate = DateTime.now().add(const Duration(days: 365));
+  DateTime _startDate = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+  DateTime _expiryDate = DateTime(DateTime.now().year + 1, DateTime.now().month, DateTime.now().day);
 
   bool _submitting = false;
   String? _submitError;
@@ -108,34 +108,38 @@ class _CreatePolicyScreenState extends State<CreatePolicyScreen> {
   }
 
   Future<void> _pickStartDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final initial = _startDate.isBefore(today) ? today : _startDate;
     final picked = await showDatePicker(
       context: context,
-      initialDate: _startDate,
-      firstDate: DateTime(2020),
+      initialDate: initial,
+      firstDate: today,
       lastDate: DateTime(2040),
     );
     if (picked != null && picked != _startDate) {
       setState(() {
-        _startDate = picked;
-        if (_expiryDate.isBefore(_startDate) || _expiryDate.isAtSameMomentAs(_startDate)) {
-          _expiryDate = _startDate.add(const Duration(days: 365));
+        _startDate = DateTime(picked.year, picked.month, picked.day);
+        if (!_expiryDate.isAfter(_startDate)) {
+          _expiryDate = DateTime(_startDate.year + 1, _startDate.month, _startDate.day);
         }
       });
     }
   }
 
   Future<void> _pickExpiryDate() async {
+    final minExpiry = _startDate.add(const Duration(days: 1));
+    final defaultExpiry = DateTime(_startDate.year + 1, _startDate.month, _startDate.day);
+    final initial = _expiryDate.isAfter(_startDate) ? _expiryDate : defaultExpiry;
     final picked = await showDatePicker(
       context: context,
-      initialDate: _expiryDate.isAfter(_startDate)
-          ? _expiryDate
-          : _startDate.add(const Duration(days: 365)),
-      firstDate: _startDate.add(const Duration(days: 1)),
+      initialDate: initial,
+      firstDate: minExpiry,
       lastDate: DateTime(2045),
     );
     if (picked != null && picked != _expiryDate) {
       setState(() {
-        _expiryDate = picked;
+        _expiryDate = DateTime(picked.year, picked.month, picked.day);
       });
     }
   }
@@ -150,6 +154,15 @@ class _CreatePolicyScreenState extends State<CreatePolicyScreen> {
     if (_selectedPolicyType == null) {
       setState(() {
         _submitError = 'Please select an insurance policy product.';
+      });
+      return;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (_startDate.isBefore(today)) {
+      setState(() {
+        _submitError = 'Start date cannot be before today.';
       });
       return;
     }

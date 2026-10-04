@@ -79,7 +79,7 @@ class SubmitClaimScreenState extends State<SubmitClaimScreen> {
 
   // Form state
   String _claimType = 'Auto';
-  DateTime _incidentDate = DateTime.now();
+  DateTime _incidentDate = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
   List<Policy> _policies = [];
   Policy? _selectedPolicy;
 
@@ -290,14 +290,16 @@ class SubmitClaimScreenState extends State<SubmitClaimScreen> {
   // ─────────────────────── Date Picker ───────────────────────
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _incidentDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 3650)),
-      lastDate: DateTime.now(),
+      initialDate: _incidentDate.isAfter(today) ? today : _incidentDate,
+      firstDate: DateTime(today.year - 10, today.month, today.day),
+      lastDate: today,
     );
     if (picked != null) {
-      setState(() => _incidentDate = picked);
+      setState(() => _incidentDate = DateTime(picked.year, picked.month, picked.day));
     }
   }
 

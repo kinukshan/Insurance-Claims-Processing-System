@@ -43,7 +43,7 @@ class Claim {
       claimType: json['claimType'] as String,
       description: json['description'] as String? ?? '',
       claimedAmount: (json['claimedAmount'] as num).toDouble(),
-      incidentDate: DateTime.parse(json['incidentDate'] as String),
+      incidentDate: _parseDateOnly(json['incidentDate']),
       incidentLocation: json['incidentLocation'] as String? ?? '',
       status: json['status'] as String,
       submittedAt: json['submittedAt'] != null
@@ -69,7 +69,7 @@ class Claim {
       'claimType': claimType,
       'description': description,
       'claimedAmount': claimedAmount,
-      'incidentDate': incidentDate.toIso8601String(),
+      'incidentDate': _formatDateOnly(incidentDate),
       'incidentLocation': incidentLocation,
       'status': status,
       'submittedAt': submittedAt?.toIso8601String(),
@@ -77,4 +77,29 @@ class Claim {
       'updatedAt': updatedAt?.toIso8601String(),
     };
   }
+}
+
+DateTime _parseDateOnly(dynamic value) {
+  if (value == null) return DateTime.now();
+  if (value is DateTime) return DateTime(value.year, value.month, value.day);
+  final str = value.toString().trim();
+  final datePart = str.contains('T') ? str.split('T')[0] : (str.contains(' ') ? str.split(' ')[0] : str);
+  final parts = datePart.split('-');
+  if (parts.length == 3) {
+    final y = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    final d = int.tryParse(parts[2]);
+    if (y != null && m != null && d != null) {
+      return DateTime(y, m, d);
+    }
+  }
+  final parsed = DateTime.parse(str);
+  return DateTime(parsed.year, parsed.month, parsed.day);
+}
+
+String _formatDateOnly(DateTime date) {
+  final y = date.year.toString().padLeft(4, '0');
+  final m = date.month.toString().padLeft(2, '0');
+  final d = date.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
 }

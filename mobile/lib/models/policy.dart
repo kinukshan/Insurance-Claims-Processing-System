@@ -61,12 +61,8 @@ class Policy {
       premium: (json['premium'] as num?)?.toDouble() ?? 0.0,
       deductible: (json['deductible'] as num?)?.toDouble() ?? 0.0,
       deductiblePercentage: (json['deductiblePercentage'] as num?)?.toDouble(),
-      startDate: json['startDate'] != null
-          ? DateTime.parse(json['startDate'] as String)
-          : DateTime.now(),
-      expiryDate: json['expiryDate'] != null
-          ? DateTime.parse(json['expiryDate'] as String)
-          : DateTime.now(),
+      startDate: _parseDateOnly(json['startDate']),
+      expiryDate: _parseDateOnly(json['expiryDate']),
       status: json['status'] as String? ?? 'Draft',
       renewalStatus: json['renewalStatus'] as String? ?? 'None',
       exclusions: json['exclusions'] as String?,
@@ -281,10 +277,35 @@ class CreatePolicyRequest {
       'deductible': deductible,
       if (deductiblePercentage != null)
         'deductiblePercentage': deductiblePercentage,
-      'startDate': startDate.toUtc().toIso8601String(),
-      'expiryDate': expiryDate.toUtc().toIso8601String(),
+      'startDate': _formatDateOnly(startDate),
+      'expiryDate': _formatDateOnly(expiryDate),
       if (exclusions != null && exclusions!.trim().isNotEmpty)
         'exclusions': exclusions!.trim(),
     };
   }
+}
+
+DateTime _parseDateOnly(dynamic value) {
+  if (value == null) return DateTime.now();
+  if (value is DateTime) return DateTime(value.year, value.month, value.day);
+  final str = value.toString().trim();
+  final datePart = str.contains('T') ? str.split('T')[0] : (str.contains(' ') ? str.split(' ')[0] : str);
+  final parts = datePart.split('-');
+  if (parts.length == 3) {
+    final y = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    final d = int.tryParse(parts[2]);
+    if (y != null && m != null && d != null) {
+      return DateTime(y, m, d);
+    }
+  }
+  final parsed = DateTime.parse(str);
+  return DateTime(parsed.year, parsed.month, parsed.day);
+}
+
+String _formatDateOnly(DateTime date) {
+  final y = date.year.toString().padLeft(4, '0');
+  final m = date.month.toString().padLeft(2, '0');
+  final d = date.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
 }

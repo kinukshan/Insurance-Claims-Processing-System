@@ -416,11 +416,11 @@ def find_file_on_disk(file_url: Optional[str], file_name: Optional[str]) -> Opti
             p = os.path.join(d, c)
             if os.path.isfile(p):
                 return os.path.abspath(p)
-        # Search by file name match if provided
+        # Search by file name match if provided (e.g. {guid}_{filename})
         if file_name:
             try:
                 for entry in os.listdir(d):
-                    if file_name in entry:
+                    if entry == file_name or entry.endswith(f"_{file_name}"):
                         full_p = os.path.join(d, entry)
                         if os.path.isfile(full_p):
                             return os.path.abspath(full_p)
@@ -471,6 +471,151 @@ def extract_pdf_text_safe(file_path: str, max_bytes: int = MAX_PARSE_FILE_SIZE_B
         return None, f"Failed to extract PDF text safely: {str(exc)}"
 
 
+def check_category_validity(norm_type: str, text_lower: str) -> bool:
+    """
+    Deterministically validates whether extracted text contains credible evidence
+    matching the declared DocumentType category.
+    Uses grouped signals / threshold logic so legitimate variation is accepted
+    without requiring an exact hard-coded template.
+    """
+    if not text_lower or len(text_lower.strip()) < 30:
+        return False
+
+    def contains_any(*kws: str) -> bool:
+        return any(k in text_lower for k in kws)
+
+    def count_matches(*kws: str) -> int:
+        return sum(1 for k in kws if k in text_lower)
+
+    if norm_type == "Doctor Referral":
+        has_referral_intent = contains_any(
+            "referral", "referred", "refer", "referring", "kindly evaluate",
+            "please evaluate", "specialist", "referred to", "consultation request",
+            "evaluate the patient", "for evaluation", "for review", "further review",
+            "further management", "second opinion", "referral letter", "referral reason",
+        )
+        has_medical_context = contains_any(
+            "doctor", "physician", "dr.", "dr ", "consultant", "patient",
+            "clinic", "hospital", "medical", "clinical",
+        )
+        has_referral_details = contains_any(
+            "referring doctor", "referring physician", "referring dr", "general physician",
+            "patient", "patient id", "patient name", "department", "orthopedic",
+            "cardiology", "neurology", "oncology", "surgery", "referral reason",
+            "reason for referral", "evaluation", "assessment", "complaint", "condition",
+            "symptoms", "injury", "specialist", "consultant",
+        )
+        return has_referral_intent and has_medical_context and has_referral_details
+
+    elif norm_type == "Medical Report":
+        has_report_context = contains_any(
+            "medical", "clinical", "report", "examination", "lab report",
+            "test report", "hospital", "clinic", "pathology", "radiology",
+            "investigation", "laboratory",
+        )
+        has_patient_context = contains_any(
+            "patient", "patient name", "patient id", "dob", "date of birth",
+            "age", "admitted", "history",
+        )
+        has_provider_context = contains_any(
+            "doctor", "physician", "dr.", "dr ", "consultant", "attending physician",
+            "surgeon", "specialist", "practitioner",
+        )
+        has_clinical_findings = contains_any(
+            "diagnosis", "clinical diagnosis", "findings", "clinical findings",
+            "assessment", "treatment", "treatment plan", "symptoms", "condition",
+            "impression", "complaint", "injury", "prescribed",
+        )
+        distinct_groups = sum([has_report_context, has_patient_context, has_provider_context, has_clinical_findings])
+        return (
+            (distinct_groups >= 3 and has_clinical_findings)
+            or (has_report_context and has_provider_context and has_clinical_findings)
+            or (distinct_groups >= 2 and has_clinical_findings and (has_report_context or has_patient_context))
+        )
+
+    elif norm_type == "Hospital Bills":
+        has_billing_evidence = contains_any(
+            "invoice", "bill", "statement", "charges", "fee", "receipt",
+            "payment", "billing", "account", "room charges", "admission fee",
+            "pharmacy charges", "discharge summary", "itemized",
+        )
+        has_facility = contains_any(
+            "hospital", "clinic", "medical center", "healthcare", "pharmacy",
+            "dispensary", "laboratory", "nawaloka", "medical",
+        )
+        has_amounts = contains_any(
+            "total", "subtotal", "amount", "tax", "balance", "paid",
+            "due", "payment status", "invoice no", "bill no", "invoice date",
+            "bill date", "lkr", "rs.", "usd", "$", "account no", "patient id",
+        )
+        return has_billing_evidence and has_amounts and (has_facility or contains_any("patient", "dr.", "doctor"))
+
+    elif norm_type == "Prescription":
+        has_rx_context = contains_any(
+            "prescription", "prescribed", "rx", "dispensed", "dispense",
+            "directions", "instructions", "take", "medicines", "medication", "sig",
+        )
+        has_dosage = contains_any(
+            "dosage", "dose", "tablet", "tablets", "capsule", "capsules",
+            "mg", "ml", "syrup", "ointment", "drops", "daily", "times daily",
+            "every 8 hours", "every 6 hours", "od", "bd", "tid", "qid",
+            "stat", "prn", "paracetamol", "ibuprofen", "amoxicillin",
+        )
+        has_provider_or_patient = contains_any(
+            "doctor", "physician", "dr.", "dr ", "prescribed by", "patient",
+            "patient name", "patient id", "clinic", "hospital", "pharmacy",
+        )
+        return (has_rx_context or has_dosage) and has_provider_or_patient
+
+    elif norm_type == "Police Report":
+        p = contains_any("police", "station", "officer", "collision", "fir", "general diary", "gd entry", "law enforcement", "constable", "patrol", "traffic police", "traffic accident", "motor vehicle accident")
+        s_count = count_matches("accident", "incident", "report", "investigation", "witness", "damage", "vehicle")
+        return p or s_count >= 2
+
+    elif norm_type == "Repair Estimate":
+        p = contains_any("repair", "estimate", "labour", "labor", "parts", "workshop", "garage", "quotation", "contractor", "body shop", "mechanic", "body repair", "automotive")
+        s = contains_any("total", "replacement", "cost", "materials", "subtotal", "tax", "hours", "estimated")
+        return p and (s or count_matches("repair", "estimate", "parts", "labor", "labour", "workshop") >= 2)
+
+    elif norm_type == "Driver License":
+        return contains_any("driver", "driving", "licence", "license", "permit", "class of vehicle", "driving licence", "driver license")
+
+    elif norm_type == "Death Certificate":
+        return contains_any("death", "deceased", "cause of death", "coroner", "died", "burial", "death certificate", "certify the death")
+
+    elif norm_type == "Beneficiary / Nominee Identification":
+        p = contains_any("beneficiary", "nominee", "relationship to insured", "nominee identification", "beneficiary identification", "kin", "spouse")
+        s = contains_any("identification", "identity", "national id", "passport", "full name", "nic")
+        return p or (s and ("beneficiary" in text_lower or "nominee" in text_lower))
+
+    elif norm_type == "Policy Document":
+        p = contains_any("policy schedule", "policy document", "policyholder", "sum assured", "premium payable", "terms and conditions")
+        s_count = count_matches("policy", "coverage", "insured", "insurance", "underwriter")
+        return p or s_count >= 2
+
+    elif norm_type == "Claim Form":
+        p = contains_any("claim form", "claimant declaration", "signature of claimant", "claim details")
+        s_count = count_matches("claimant", "declaration", "policy number", "loss")
+        return p or s_count >= 2
+
+    elif norm_type == "Property Deed":
+        p = contains_any("title deed", "property deed", "conveyance", "land registry", "cadastral", "parcel number")
+        s_count = count_matches("deed", "property", "owner", "ownership", "land")
+        return p or (s_count >= 2 and ("deed" in text_lower or "title" in text_lower))
+
+    elif norm_type == "Property Valuation":
+        p = contains_any("valuation report", "property valuation", "appraisal", "surveyor", "market valuation")
+        s_count = count_matches("valuation", "property", "assessed value", "replacement cost")
+        return p or s_count >= 2
+
+    elif norm_type == "Travel Itinerary":
+        p = contains_any("flight", "boarding pass", "e-ticket", "airline", "passenger", "booking reference", "itinerary")
+        s_count = count_matches("travel", "departure", "arrival", "hotel", "reservation")
+        return p or s_count >= 2
+
+    return True
+
+
 def evaluate_content_consistency(
     text: str,
     claimed_type: str,
@@ -509,10 +654,10 @@ def evaluate_content_consistency(
 
     # Find highest matching other category
     other_scores = {k: v for k, v in scores.items() if k != norm_claimed}
-    if not other_scores:
-        return False, None, "Document content consistent."
-
-    top_other_type, top_other_score = max(other_scores.items(), key=lambda x: x[1])
+    top_other_type = None
+    top_other_score = 0
+    if other_scores:
+        top_other_type, top_other_score = max(other_scores.items(), key=lambda x: x[1])
 
     # Secondary signal: filename mentions other type (weak signal per rules)
     filename_suggests_other = False
@@ -520,22 +665,42 @@ def evaluate_content_consistency(
         if any(term in file_name_lower for term in ("beneficiary", "nominee", "death_cert")):
             filename_suggests_other = True
 
-    # Deterministic mismatch condition:
-    # 1. Claimed type has zero or near-zero primary signal (claimed_score <= 1)
-    # 2. Another category has strong signal (top_other_score >= 3 with primary keywords)
-    has_top_other_primary = any(
-        kw in text_lower for kw in DOCUMENT_TYPE_SIGNALS.get(top_other_type, {}).get("primary", [])
+    has_top_other_primary = bool(
+        top_other_type
+        and any(
+            kw in text_lower for kw in DOCUMENT_TYPE_SIGNALS.get(top_other_type, {}).get("primary", [])
+        )
     )
 
-    is_mismatch = False
-    if claimed_score == 0 and top_other_score >= 3 and has_top_other_primary:
-        is_mismatch = True
-    elif claimed_score <= 1 and top_other_score >= 4 and has_top_other_primary:
-        is_mismatch = True
-    elif claimed_score == 0 and filename_suggests_other and top_other_score >= 2:
-        is_mismatch = True
+    # 1. Evaluate whether the document satisfies the semantic evidence rules for declared category
+    is_declared_category_valid = check_category_validity(norm_claimed, text_lower)
 
-    if is_mismatch:
+    if not is_declared_category_valid:
+        if top_other_score >= 3 and has_top_other_primary and top_other_type:
+            other_matches = matched_kws.get(top_other_type, [])
+            expl = (
+                f"Uploaded file under '{norm_claimed}' lacks expected indicators "
+                f"and strongly resembles '{top_other_type}' (detected signals: {', '.join(other_matches[:4])})."
+            )
+            return True, top_other_type, expl
+
+        if filename_suggests_other and top_other_score >= 2 and top_other_type:
+            other_matches = matched_kws.get(top_other_type, [])
+            expl = (
+                f"Uploaded file under '{norm_claimed}' lacks expected indicators "
+                f"and strongly resembles '{top_other_type}' (detected signals: {', '.join(other_matches[:4])})."
+            )
+            return True, top_other_type, expl
+
+        # Unrelated content (e.g. software architecture slides, recipes, novels)
+        return True, None, f"The document content does not appear consistent with {norm_claimed}."
+
+    # 2. Even if declared category has some matches, check if another category overwhelmingly dominates
+    is_cross_type_mismatch = False
+    if claimed_score <= 1 and top_other_score >= 4 and has_top_other_primary and top_other_type:
+        is_cross_type_mismatch = True
+
+    if is_cross_type_mismatch and top_other_type:
         other_matches = matched_kws.get(top_other_type, [])
         expl = (
             f"Uploaded file under '{norm_claimed}' lacks expected indicators "
@@ -543,4 +708,4 @@ def evaluate_content_consistency(
         )
         return True, top_other_type, expl
 
-    return False, None, f"Document content reasonably matches '{norm_claimed}'."
+    return False, None, f"Document content is consistent with '{norm_claimed}'."

@@ -100,7 +100,7 @@ class ClaimService {
     final data = await _api.post('/claims', body: {
       'policyId': policyId,
       'claimType': claimTypeIndex,
-      'incidentDate': incidentDate.toUtc().toIso8601String(),
+      'incidentDate': _formatDateOnly(incidentDate),
       'incidentLocation': incidentLocation,
       'description': description,
       'claimedAmount': claimedAmount,
@@ -133,7 +133,7 @@ class ClaimService {
     if (description != null) body['description'] = description;
     if (incidentLocation != null) body['incidentLocation'] = incidentLocation;
     if (claimedAmount != null) body['claimedAmount'] = claimedAmount;
-    if (incidentDate != null) body['incidentDate'] = incidentDate.toUtc().toIso8601String();
+    if (incidentDate != null) body['incidentDate'] = _formatDateOnly(incidentDate);
 
     final data = await _api.put('/claims/$id', body: body);
     return Claim.fromJson(data as Map<String, dynamic>);
@@ -219,5 +219,12 @@ class ClaimService {
   /// Includes Motor (8) which was missing in the original mapping.
   int _claimTypeToIndex(String claimType) {
     return claimTypeIndices[claimType] ?? 7; // Default to 'Other'
+  }
+
+  String _formatDateOnly(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
   }
 }

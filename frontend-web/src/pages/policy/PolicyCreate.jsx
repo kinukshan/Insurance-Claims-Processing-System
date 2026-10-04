@@ -5,10 +5,14 @@ import React, { useState, useEffect } from 'react'
 import { createPolicy, getPolicyTypes } from '../../services/policyService'
 import { useAuth } from '../../context/AuthContext'
 import { getDeductiblePercentage, getFixedDeductible, formatDeductible } from '../../utils/policyClaimMapping'
+import { formatLocalDate, addDaysToLocalDate, addYearsToLocalDate } from '../../utils/dateUtils'
 
 function PolicyCreate({ onBack, onCreated }) {
   const { user, role } = useAuth()
   const isPolicyholder = role === 'Policyholder'
+
+  const todayStr = formatLocalDate(new Date())
+  const defaultExpiryStr = addYearsToLocalDate(todayStr, 1)
 
   const [policyTypes, setPolicyTypes] = useState([])
   const [loadingTypes, setLoadingTypes] = useState(true)
@@ -18,8 +22,8 @@ function PolicyCreate({ onBack, onCreated }) {
     policyTypeId: '',
     coverageLimit: '',
     deductible: '',
-    startDate: '',
-    expiryDate: '',
+    startDate: todayStr,
+    expiryDate: defaultExpiryStr,
     exclusions: '',
   })
   const [errors, setErrors] = useState({})
@@ -58,6 +62,41 @@ function PolicyCreate({ onBack, onCreated }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target
+
+    if (name === 'startDate') {
+      setFormData((prev) => {
+        const next = { ...prev, startDate: value }
+        // If expiryDate is empty or <= new startDate, automatically advance it to startDate + 1 year
+        if (value && (!prev.expiryDate || prev.expiryDate <= value)) {
+          next.expiryDate = addYearsToLocalDate(value, 1)
+        }
+        return next
+      })
+      setErrors((prev) => {
+        const nextErrors = { ...prev, startDate: null }
+        if (value && value < todayStr) {
+          nextErrors.startDate = 'Start date cannot be before today.'
+        }
+        if (nextErrors.expiryDate) {
+          nextErrors.expiryDate = null
+        }
+        return nextErrors
+      })
+      return
+    }
+
+    if (name === 'expiryDate') {
+      setFormData((prev) => ({ ...prev, expiryDate: value }))
+      setErrors((prev) => {
+        const nextErrors = { ...prev, expiryDate: null }
+        if (value && formData.startDate && value <= formData.startDate) {
+          nextErrors.expiryDate = 'Expiry date must be later than the start date.'
+        }
+        return nextErrors
+      })
+      return
+    }
+
     setFormData((prev) => ({ ...prev, [name]: value }))
     // Clear field error on change
     if (errors[name]) {
@@ -135,14 +174,14 @@ function PolicyCreate({ onBack, onCreated }) {
 
     if (!formData.startDate) {
       newErrors.startDate = 'Start date is required.'
+    } else if (formData.startDate < todayStr) {
+      newErrors.startDate = 'Start date cannot be before today.'
     }
 
     if (!formData.expiryDate) {
       newErrors.expiryDate = 'Expiry date is required.'
-    }
-
-    if (formData.startDate && formData.expiryDate && formData.startDate >= formData.expiryDate) {
-      newErrors.expiryDate = 'Expiry date must be after start date.'
+    } else if (formData.startDate && formData.expiryDate <= formData.startDate) {
+      newErrors.expiryDate = 'Expiry date must be later than the start date.'
     }
 
     if (formData.exclusions && formData.exclusions.length > 2000) {
@@ -169,8 +208,8 @@ function PolicyCreate({ onBack, onCreated }) {
         coverageLimit: Number(formData.coverageLimit),
         deductible: fixedDeductibleAmount != null ? fixedDeductibleAmount : 0,
         deductiblePercentage: percentageRate != null ? percentageRate : null,
-        startDate: new Date(formData.startDate).toISOString(),
-        expiryDate: new Date(formData.expiryDate).toISOString(),
+        startDate: formData.startDate,
+        expiryDate: formData.expiryDate,
         exclusions: formData.exclusions || null,
       }
       const created = await createPolicy(payload)
@@ -374,6 +413,7 @@ function PolicyCreate({ onBack, onCreated }) {
               type="date"
               name="startDate"
               value={formData.startDate}
+              min={todayStr}
               onChange={handleChange}
               style={errors.startDate ? errorFieldStyle : fieldStyle}
             />
@@ -386,6 +426,7 @@ function PolicyCreate({ onBack, onCreated }) {
               type="date"
               name="expiryDate"
               value={formData.expiryDate}
+              min={formData.startDate ? addDaysToLocalDate(formData.startDate, 1) : addDaysToLocalDate(todayStr, 1)}
               onChange={handleChange}
               style={errors.expiryDate ? errorFieldStyle : fieldStyle}
             />

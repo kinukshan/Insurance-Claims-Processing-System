@@ -643,7 +643,7 @@ function ClaimDetails() {
               {normVerif.complete ? '✅' : '⚠️'} Document Verification Result
             </h3>
             <span className={`status-badge ${normVerif.complete ? 'status-badge--approved' : 'status-badge--riskassessment'}`}>
-              {normVerif.complete ? 'Complete' : (normVerif.missingItems?.length === 0 ? 'Needs Review' : 'Action Required')}
+              {normVerif.complete ? 'Complete' : (normVerif.inconsistencies?.length > 0 || normVerif.missingItems?.length === 0 ? 'Needs Review' : 'Action Required')}
             </span>
           </div>
 
@@ -652,7 +652,9 @@ function ClaimDetails() {
               ? 'All required documents are present and verified.'
               : (normVerif.missingItems?.length === 0 && normVerif.inconsistencies?.length > 0
                   ? 'All required document types are present, but one or more documents require review.'
-                  : 'Verification found issues that need attention.')}
+                  : (normVerif.inconsistencies?.length > 0
+                      ? 'Document issues or inconsistencies were detected that require review.'
+                      : 'Some required documents are missing or invalid.'))}
           </p>
 
           {/* Fallback Notice */}
@@ -1057,7 +1059,17 @@ function ClaimDetails() {
                           ⚠️ {docInconsistency.description}
                         </p>
                       )}
-                      {!docInconsistency && (doc.verificationStatus === 'Rejected' || doc.verificationStatus === 'Mismatch') && (
+                      {!docInconsistency && doc.verificationStatus === 'Mismatch' && (
+                        <p style={{ color: 'var(--color-rejected)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                          ⚠️ The document content does not appear consistent with {doc.documentType}.
+                        </p>
+                      )}
+                      {!docInconsistency && doc.verificationStatus === 'Unreadable' && (
+                        <p style={{ color: 'var(--color-rejected)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                          ⚠️ Document is unreadable or contains no extractable text.
+                        </p>
+                      )}
+                      {!docInconsistency && doc.verificationStatus === 'Rejected' && (
                         <p style={{ color: 'var(--color-rejected)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
                           ⚠️ File format is not valid for {doc.documentType}.
                         </p>

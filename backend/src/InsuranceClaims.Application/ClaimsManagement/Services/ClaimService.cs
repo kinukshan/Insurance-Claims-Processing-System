@@ -1,6 +1,8 @@
 using InsuranceClaims.Application.ClaimsManagement.DTOs;
 using InsuranceClaims.Application.ClaimsManagement.Interfaces;
 using InsuranceClaims.Application.ClaimsManagement.Validators;
+using InsuranceClaims.Application.Common;
+using InsuranceClaims.Application.Common.Interfaces;
 using InsuranceClaims.Domain.AgentWorkflows;
 using InsuranceClaims.Domain.ClaimsManagement;
 using InsuranceClaims.Domain.PolicyManagement;
@@ -19,17 +21,20 @@ public class ClaimService : IClaimService
     private readonly IDocumentStorageService _storageService;
     private readonly IPolicyValidationService _policyValidation;
     private readonly IDocumentVerificationClient _verificationClient;
+    private readonly IBusinessCalendar _businessCalendar;
 
     public ClaimService(
         IClaimRepository claimRepository,
         IDocumentStorageService storageService,
         IPolicyValidationService policyValidation,
-        IDocumentVerificationClient verificationClient)
+        IDocumentVerificationClient verificationClient,
+        IBusinessCalendar? businessCalendar = null)
     {
         _claimRepository = claimRepository;
         _storageService = storageService;
         _policyValidation = policyValidation;
         _verificationClient = verificationClient;
+        _businessCalendar = businessCalendar ?? BusinessCalendar.Default;
     }
 
     /// <summary>
@@ -45,7 +50,7 @@ public class ClaimService : IClaimService
     public async Task<ClaimResponseDto> CreateClaimAsync(Guid requestingUserId, CreateClaimDto dto, Role userRole = Role.Policyholder)
     {
         // Validate input
-        var errors = CreateClaimValidator.Validate(dto);
+        var errors = CreateClaimValidator.Validate(dto, _businessCalendar);
         if (errors.Count > 0)
             throw new ArgumentException(string.Join("; ", errors));
 
@@ -99,7 +104,7 @@ public class ClaimService : IClaimService
             ClaimType = dto.ClaimType,
             Description = dto.Description,
             ClaimedAmount = dto.ClaimedAmount,
-            IncidentDate = dto.IncidentDate,
+            IncidentDate = DateTime.SpecifyKind(dto.IncidentDate.Date, DateTimeKind.Utc),
             IncidentLocation = dto.IncidentLocation,
             Status = ClaimStatus.Draft
         };
@@ -144,14 +149,14 @@ public class ClaimService : IClaimService
         if (claim.Status != ClaimStatus.Draft)
             throw new InvalidOperationException("Only draft claims can be updated.");
 
-        var errors = UpdateClaimValidator.Validate(dto);
+        var errors = UpdateClaimValidator.Validate(dto, _businessCalendar);
         if (errors.Count > 0)
             throw new ArgumentException(string.Join("; ", errors));
 
         if (dto.Description is not null) claim.Description = dto.Description;
         if (dto.IncidentLocation is not null) claim.IncidentLocation = dto.IncidentLocation;
         if (dto.ClaimedAmount.HasValue) claim.ClaimedAmount = dto.ClaimedAmount.Value;
-        if (dto.IncidentDate.HasValue) claim.IncidentDate = dto.IncidentDate.Value;
+        if (dto.IncidentDate.HasValue) claim.IncidentDate = DateTime.SpecifyKind(dto.IncidentDate.Value.Date, DateTimeKind.Utc);
 
         var updated = await _claimRepository.UpdateAsync(claim);
         return MapToResponse(updated);
@@ -426,6 +431,8 @@ public class ClaimService : IClaimService
                 }
             }
             else if (doc.VerificationStatus != DocumentVerificationStatus.Rejected &&
+                     doc.VerificationStatus != DocumentVerificationStatus.Mismatch &&
+                     doc.VerificationStatus != DocumentVerificationStatus.Unreadable &&
                      doc.VerificationStatus != DocumentVerificationStatus.Verified)
             {
                 doc.VerificationStatus = DocumentVerificationStatus.Verified;
@@ -454,7 +461,7 @@ public class ClaimService : IClaimService
         {
             // Deterministic fallback if AI service is completely unavailable
             aiResult = new DocumentVerificationResultDto(
-                Complete: !localEval.HasMismatches && !localEval.HasUnreadable,
+                Complete: !localEval.HasMismatches && !localEval.HasUnreadable && !localEval.Findings.Any(f => f.Status is DocumentVerificationStatus.Rejected),
                 MissingItems: new List<string>(),
                 Inconsistencies: new List<DocumentInconsistencyDto>(),
                 Warnings: new List<string> { "AI verification service unavailable; deterministic rule-based validation applied." },
@@ -480,19 +487,31 @@ public class ClaimService : IClaimService
             }
         }
 
-        // Recompute missing required documents deterministically
+        // Recompute missing required documents deterministically based on findings and AI results
         var requiredDocs = DocumentChecklistValidator.GetRequiredDocuments(claim.ClaimType.ToString());
         var missingItems = new List<string>(aiResult.MissingItems ?? new List<string>());
+
+        // Any required document type that has an invalid finding (Mismatch, Unreadable, Rejected) must be added to missing items
         foreach (var finding in localEval.Findings)
         {
-            var reqMatch = requiredDocs.FirstOrDefault(r => DocumentChecklistValidator.NormalizeDocumentType(r).Equals(finding.DocumentType, StringComparison.OrdinalIgnoreCase));
-            if (reqMatch != null && !missingItems.Contains(reqMatch, StringComparer.OrdinalIgnoreCase))
+            if (finding.Status is DocumentVerificationStatus.Mismatch
+                or DocumentVerificationStatus.Unreadable
+                or DocumentVerificationStatus.Rejected)
             {
-                missingItems.Add(reqMatch);
+                var reqMatch = requiredDocs.FirstOrDefault(r => DocumentChecklistValidator.NormalizeDocumentType(r).Equals(finding.DocumentType, StringComparison.OrdinalIgnoreCase));
+                if (reqMatch != null && !missingItems.Contains(reqMatch, StringComparer.OrdinalIgnoreCase))
+                {
+                    missingItems.Add(reqMatch);
+                }
             }
         }
 
-        var isComplete = aiResult.Complete && !localEval.HasMismatches && !localEval.HasUnreadable && missingItems.Count == 0;
+        var hasInvalidFindings = localEval.HasMismatches
+                                 || localEval.HasUnreadable
+                                 || localEval.Findings.Any(f => f.Status is DocumentVerificationStatus.Rejected or DocumentVerificationStatus.Mismatch or DocumentVerificationStatus.Unreadable);
+
+        // Gemini must NEVER override deterministic completeness
+        var isComplete = aiResult.Complete && !hasInvalidFindings && missingItems.Count == 0;
 
         Guid attemptId;
         if (existingAttempt != null)
@@ -506,7 +525,7 @@ public class ClaimService : IClaimService
                 Id = Guid.NewGuid(),
                 ClaimId = claimId,
                 Objective = "DocumentVerification",
-                Status = isComplete ? "Completed" : (mergedInconsistencies.Count > 0 ? "NeedsReview" : "AdditionalDocsRequired"),
+                Status = isComplete ? "Completed" : (hasInvalidFindings || mergedInconsistencies.Count > 0 ? "NeedsReview" : "AdditionalDocsRequired"),
                 Plan = !string.IsNullOrWhiteSpace(idempotencyKey) ? $"idempotency:{idempotencyKey}" : null,
                 ExecutionSummary = $"Verified {docs.Count} documents. Complete: {isComplete}",
                 FinalOutcome = isComplete ? "Verified" : "PendingAction",

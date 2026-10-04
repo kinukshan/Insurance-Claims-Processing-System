@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Enums;
@@ -47,8 +48,8 @@ public class CanonicalPolicyTypePricingTests
             PolicyTypeId = PolicyClaimCompatibility.MotorInsuranceId,
             CoverageLimit = 100000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         // Motor has percentage deductible = 5%
@@ -83,8 +84,8 @@ public class CanonicalPolicyTypePricingTests
             PolicyTypeId = PolicyClaimCompatibility.HealthInsuranceId,
             CoverageLimit = 150000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         // Health has percentage deductible = 10%
@@ -117,8 +118,8 @@ public class CanonicalPolicyTypePricingTests
             PolicyTypeId = PolicyClaimCompatibility.HomeInsuranceId,
             CoverageLimit = 200000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         // Home has percentage deductible = 10%
@@ -150,8 +151,8 @@ public class CanonicalPolicyTypePricingTests
             PolicyTypeId = PolicyClaimCompatibility.LifeInsuranceId,
             CoverageLimit = 500000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         Assert.Equal(0m, created.DeductiblePercentage);

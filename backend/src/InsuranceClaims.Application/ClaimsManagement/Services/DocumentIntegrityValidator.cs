@@ -364,6 +364,206 @@ public static class DocumentIntegrityValidator
         return res;
     }
 
+    private static bool ContainsAny(string textLower, params string[] keywords)
+    {
+        return keywords.Any(k => textLower.Contains(k, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int CountMatches(string textLower, params string[] keywords)
+    {
+        return keywords.Count(k => textLower.Contains(k, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Deterministically validates whether extracted text contains credible evidence
+    /// matching the declared DocumentType category.
+    /// Uses grouped signals / threshold logic so legitimate variation is accepted
+    /// without requiring an exact hard-coded template.
+    /// </summary>
+    public static bool CheckCategoryValidity(string normalizedDocType, string textLower)
+    {
+        if (string.IsNullOrWhiteSpace(textLower) || textLower.Length < 30)
+            return false;
+
+        switch (normalizedDocType)
+        {
+            case "Doctor Referral":
+            {
+                // Group 1: Referral intent/context
+                var hasReferralIntent = ContainsAny(textLower,
+                    "referral", "referred", "refer", "referring", "kindly evaluate",
+                    "please evaluate", "specialist", "referred to", "consultation request",
+                    "evaluate the patient", "for evaluation", "for review", "further review",
+                    "further management", "second opinion", "referral letter", "referral reason");
+
+                // Group 2: Medical / clinical context
+                var hasMedicalContext = ContainsAny(textLower,
+                    "doctor", "physician", "dr.", "dr ", "consultant", "patient",
+                    "clinic", "hospital", "medical", "clinical");
+
+                // Group 3: Referral specifics (referring doctor, patient, recipient department, referral reason)
+                var hasReferralDetails = ContainsAny(textLower,
+                    "referring doctor", "referring physician", "referring dr", "general physician",
+                    "patient", "patient id", "patient name", "department", "orthopedic",
+                    "cardiology", "neurology", "oncology", "surgery", "referral reason",
+                    "reason for referral", "evaluation", "assessment", "complaint", "condition",
+                    "symptoms", "injury", "specialist", "consultant");
+
+                return hasReferralIntent && hasMedicalContext && hasReferralDetails;
+            }
+
+            case "Medical Report":
+            {
+                // Group 1: Medical / clinical / report context
+                var hasReportContext = ContainsAny(textLower,
+                    "medical", "clinical", "report", "examination", "lab report",
+                    "test report", "hospital", "clinic", "pathology", "radiology",
+                    "investigation", "laboratory");
+
+                // Group 2: Patient context
+                var hasPatientContext = ContainsAny(textLower,
+                    "patient", "patient name", "patient id", "dob", "date of birth",
+                    "age", "admitted", "history");
+
+                // Group 3: Physician / Provider context
+                var hasProviderContext = ContainsAny(textLower,
+                    "doctor", "physician", "dr.", "dr ", "consultant", "attending physician",
+                    "surgeon", "specialist", "practitioner");
+
+                // Group 4: Diagnosis / clinical findings / assessment / treatment
+                var hasClinicalFindings = ContainsAny(textLower,
+                    "diagnosis", "clinical diagnosis", "findings", "clinical findings",
+                    "assessment", "treatment", "treatment plan", "symptoms", "condition",
+                    "impression", "complaint", "injury", "prescribed");
+
+                int distinctGroups = 0;
+                if (hasReportContext) distinctGroups++;
+                if (hasPatientContext) distinctGroups++;
+                if (hasProviderContext) distinctGroups++;
+                if (hasClinicalFindings) distinctGroups++;
+
+                // Must have clinical findings/diagnosis/treatment AND multiple groups
+                return (distinctGroups >= 3 && hasClinicalFindings) ||
+                       (hasReportContext && hasProviderContext && hasClinicalFindings) ||
+                       (distinctGroups >= 2 && hasClinicalFindings && (hasReportContext || hasPatientContext));
+            }
+
+            case "Hospital Bills":
+            {
+                // Group 1: Billing evidence
+                var hasBillingEvidence = ContainsAny(textLower,
+                    "invoice", "bill", "statement", "charges", "fee", "receipt",
+                    "payment", "billing", "account", "room charges", "admission fee",
+                    "pharmacy charges", "discharge summary", "itemized");
+
+                // Group 2: Facility / Provider
+                var hasFacility = ContainsAny(textLower,
+                    "hospital", "clinic", "medical center", "healthcare", "pharmacy",
+                    "dispensary", "laboratory", "nawaloka", "medical");
+
+                // Group 3: Financial amounts / identifiers
+                var hasAmounts = ContainsAny(textLower,
+                    "total", "subtotal", "amount", "tax", "balance", "paid",
+                    "due", "payment status", "invoice no", "bill no", "invoice date",
+                    "bill date", "lkr", "rs.", "usd", "$", "account no", "patient id");
+
+                return hasBillingEvidence && hasAmounts && (hasFacility || ContainsAny(textLower, "patient", "dr.", "doctor"));
+            }
+
+            case "Prescription":
+            {
+                // Group 1: Prescribing / Rx context
+                var hasRxContext = ContainsAny(textLower,
+                    "prescription", "prescribed", "rx", "dispensed", "dispense",
+                    "directions", "instructions", "take", "medicines", "medication", "sig");
+
+                // Group 2: Medication dosage / form
+                var hasDosage = ContainsAny(textLower,
+                    "dosage", "dose", "tablet", "tablets", "capsule", "capsules",
+                    "mg", "ml", "syrup", "ointment", "drops", "daily", "times daily",
+                    "every 8 hours", "every 6 hours", "od", "bd", "tid", "qid",
+                    "stat", "prn", "paracetamol", "ibuprofen", "amoxicillin");
+
+                // Group 3: Provider / Patient
+                var hasProviderOrPatient = ContainsAny(textLower,
+                    "doctor", "physician", "dr.", "dr ", "prescribed by", "patient",
+                    "patient name", "patient id", "clinic", "hospital", "pharmacy");
+
+                return (hasRxContext || hasDosage) && hasProviderOrPatient;
+            }
+
+            case "Police Report":
+            {
+                var p = ContainsAny(textLower, "police", "station", "officer", "collision", "fir", "general diary", "gd entry", "law enforcement", "constable", "patrol", "traffic police", "traffic accident", "motor vehicle accident");
+                var sCount = CountMatches(textLower, "accident", "incident", "report", "investigation", "witness", "damage", "vehicle");
+                return p || sCount >= 2;
+            }
+
+            case "Repair Estimate":
+            {
+                var p = ContainsAny(textLower, "repair", "estimate", "labour", "labor", "parts", "workshop", "garage", "quotation", "contractor", "body shop", "mechanic", "body repair", "automotive");
+                var s = ContainsAny(textLower, "total", "replacement", "cost", "materials", "subtotal", "tax", "hours", "estimated");
+                return p && (s || CountMatches(textLower, "repair", "estimate", "parts", "labor", "labour", "workshop") >= 2);
+            }
+
+            case "Driver License":
+            {
+                return ContainsAny(textLower, "driver", "driving", "licence", "license", "permit", "class of vehicle", "driving licence", "driver license");
+            }
+
+            case "Death Certificate":
+            {
+                return ContainsAny(textLower, "death", "deceased", "cause of death", "coroner", "died", "burial", "death certificate", "certify the death");
+            }
+
+            case "Beneficiary / Nominee Identification":
+            {
+                var p = ContainsAny(textLower, "beneficiary", "nominee", "relationship to insured", "nominee identification", "beneficiary identification", "kin", "spouse");
+                var s = ContainsAny(textLower, "identification", "identity", "national id", "passport", "full name", "nic");
+                return p || (s && (textLower.Contains("beneficiary") || textLower.Contains("nominee")));
+            }
+
+            case "Policy Document":
+            {
+                var p = ContainsAny(textLower, "policy schedule", "policy document", "policyholder", "sum assured", "premium payable", "terms and conditions");
+                var sCount = CountMatches(textLower, "policy", "coverage", "insured", "insurance", "underwriter");
+                return p || sCount >= 2;
+            }
+
+            case "Claim Form":
+            {
+                var p = ContainsAny(textLower, "claim form", "claimant declaration", "signature of claimant", "claim details");
+                var sCount = CountMatches(textLower, "claimant", "declaration", "policy number", "loss");
+                return p || sCount >= 2;
+            }
+
+            case "Property Deed":
+            {
+                var p = ContainsAny(textLower, "title deed", "property deed", "conveyance", "land registry", "cadastral", "parcel number");
+                var sCount = CountMatches(textLower, "deed", "property", "owner", "ownership", "land");
+                return p || (sCount >= 2 && (textLower.Contains("deed") || textLower.Contains("title")));
+            }
+
+            case "Property Valuation":
+            {
+                var p = ContainsAny(textLower, "valuation report", "property valuation", "appraisal", "surveyor", "market valuation");
+                var sCount = CountMatches(textLower, "valuation", "property", "assessed value", "replacement cost");
+                return p || sCount >= 2;
+            }
+
+            case "Travel Itinerary":
+            {
+                var p = ContainsAny(textLower, "flight", "boarding pass", "e-ticket", "airline", "passenger", "booking reference", "itinerary");
+                var sCount = CountMatches(textLower, "travel", "departure", "arrival", "hotel", "reservation");
+                return p || sCount >= 2;
+            }
+
+            default:
+                // Types without special rules (e.g. Supporting Document) accept any non-empty content
+                return true;
+        }
+    }
+
     public static (bool IsMismatch, string? ResemblesType, string Reason) EvaluateContentConsistency(
         string text, string claimedType, string fileName = "")
     {
@@ -398,16 +598,18 @@ public static class DocumentIntegrityValidator
         var claimedScore = scores.TryGetValue(normClaimed, out var cs) ? cs : 0;
         var otherScores = scores.Where(kv => !string.Equals(kv.Key, normClaimed, StringComparison.OrdinalIgnoreCase)).ToList();
 
-        if (otherScores.Count == 0)
+        string? topOtherType = null;
+        int topOtherScore = 0;
+        List<string>? topPrimaryList = null;
+        bool hasTopOtherPrimary = false;
+
+        if (otherScores.Count > 0)
         {
-            return (false, null, "Document content consistent.");
+            var topOther = otherScores.OrderByDescending(kv => kv.Value).First();
+            topOtherType = topOther.Key;
+            topOtherScore = topOther.Value;
+            hasTopOtherPrimary = primaryMatches.TryGetValue(topOtherType, out topPrimaryList) && topPrimaryList.Count > 0;
         }
-
-        var topOther = otherScores.OrderByDescending(kv => kv.Value).First();
-        var topOtherType = topOther.Key;
-        var topOtherScore = topOther.Value;
-
-        var hasTopOtherPrimary = primaryMatches.TryGetValue(topOtherType, out var topPrimaryList) && topPrimaryList.Count > 0;
 
         bool filenameSuggestsOther = false;
         if (topOtherType is "Beneficiary / Nominee Identification" or "Death Certificate")
@@ -418,21 +620,42 @@ public static class DocumentIntegrityValidator
             }
         }
 
-        bool isMismatch = false;
-        if (claimedScore == 0 && topOtherScore >= 3 && hasTopOtherPrimary)
+        // 1. Evaluate whether the document satisfies the semantic evidence rules for declared category
+        var isDeclaredCategoryValid = CheckCategoryValidity(normClaimed, textLower);
+
+        if (!isDeclaredCategoryValid)
         {
-            isMismatch = true;
-        }
-        else if (claimedScore <= 1 && topOtherScore >= 4 && hasTopOtherPrimary)
-        {
-            isMismatch = true;
-        }
-        else if (claimedScore == 0 && filenameSuggestsOther && topOtherScore >= 2)
-        {
-            isMismatch = true;
+            // If it strongly resembles another category, report the resembling category
+            if (topOtherScore >= 3 && hasTopOtherPrimary && topOtherType != null)
+            {
+                var detected = topPrimaryList != null && topPrimaryList.Count > 0
+                    ? string.Join(", ", topPrimaryList.Take(3))
+                    : "unrelated content indicators";
+                var reason = $"Uploaded file under '{normClaimed}' does not contain expected indicators and strongly resembles '{topOtherType}' (detected: {detected}).";
+                return (true, topOtherType, reason);
+            }
+
+            if (filenameSuggestsOther && topOtherScore >= 2 && topOtherType != null)
+            {
+                var detected = topPrimaryList != null && topPrimaryList.Count > 0
+                    ? string.Join(", ", topPrimaryList.Take(3))
+                    : "unrelated content indicators";
+                var reason = $"Uploaded file under '{normClaimed}' does not contain expected indicators and strongly resembles '{topOtherType}' (detected: {detected}).";
+                return (true, topOtherType, reason);
+            }
+
+            // Unrelated content (e.g. software architecture slides, recipes, novels)
+            return (true, null, $"The document content does not appear consistent with {normClaimed}.");
         }
 
-        if (isMismatch)
+        // 2. Even if declared category has some matches, check if another category overwhelmingly dominates
+        bool isCrossTypeMismatch = false;
+        if (claimedScore <= 1 && topOtherScore >= 4 && hasTopOtherPrimary && topOtherType != null)
+        {
+            isCrossTypeMismatch = true;
+        }
+
+        if (isCrossTypeMismatch && topOtherType != null)
         {
             var detected = topPrimaryList != null && topPrimaryList.Count > 0
                 ? string.Join(", ", topPrimaryList.Take(3))
@@ -537,9 +760,29 @@ public static class DocumentIntegrityValidator
                     continue;
                 }
 
-                // 4. Content consistency check
+                // 4. Content extraction and consistency check
                 var text = ExtractTextSafely(bytes, doc.FileName);
-                if (!string.IsNullOrWhiteSpace(text))
+
+                // Scanned / non-text PDF safety: If it's a PDF and text cannot be extracted or is too short (< 30 chars),
+                // it cannot be deterministically verified. Mark Unreadable / Needs Review.
+                if (sig == "pdf" || ext == ".pdf")
+                {
+                    if (string.IsNullOrWhiteSpace(text) || text.Trim().Length < 30)
+                    {
+                        findings.Add(new DocumentIntegrityFinding(
+                            doc.Id,
+                            normType,
+                            doc.FileName,
+                            FraudFlagType.DocumentUnreadable,
+                            FlagSeverity.High,
+                            $"Document '{doc.FileName}' uploaded under '{normType}' contains insufficient or unreadable text (scanned or image-only PDF requires review).",
+                            DocumentVerificationStatus.Unreadable
+                        ));
+                        continue;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(text) && text.Trim().Length >= 30)
                 {
                     var (isMismatch, resemblesType, reason) = EvaluateContentConsistency(text, normType, doc.FileName);
                     if (isMismatch)
@@ -558,42 +801,45 @@ public static class DocumentIntegrityValidator
                 }
             }
 
-            // Also check if document was already marked Mismatch or Unreadable in DB
-            if (doc.VerificationStatus == DocumentVerificationStatus.Mismatch)
+            // Also check if document was already marked Mismatch or Unreadable in DB (when bytes unavailable)
+            if (bytes == null || bytes.Length == 0)
             {
-                findings.Add(new DocumentIntegrityFinding(
-                    doc.Id,
-                    normType,
-                    doc.FileName,
-                    FraudFlagType.DocumentTypeMismatch,
-                    FlagSeverity.High,
-                    $"Document '{doc.FileName}' uploaded under '{normType}' was flagged as a document type mismatch.",
-                    DocumentVerificationStatus.Mismatch
-                ));
-            }
-            else if (doc.VerificationStatus == DocumentVerificationStatus.Unreadable)
-            {
-                findings.Add(new DocumentIntegrityFinding(
-                    doc.Id,
-                    normType,
-                    doc.FileName,
-                    FraudFlagType.DocumentUnreadable,
-                    FlagSeverity.High,
-                    $"Document '{doc.FileName}' uploaded under '{normType}' is unreadable.",
-                    DocumentVerificationStatus.Unreadable
-                ));
-            }
-            else if (doc.VerificationStatus == DocumentVerificationStatus.Rejected)
-            {
-                findings.Add(new DocumentIntegrityFinding(
-                    doc.Id,
-                    normType,
-                    doc.FileName,
-                    FraudFlagType.DocumentTypeMismatch,
-                    FlagSeverity.High,
-                    $"Document '{doc.FileName}' uploaded under '{normType}' was rejected due to incompatibility.",
-                    DocumentVerificationStatus.Rejected
-                ));
+                if (doc.VerificationStatus == DocumentVerificationStatus.Mismatch)
+                {
+                    findings.Add(new DocumentIntegrityFinding(
+                        doc.Id,
+                        normType,
+                        doc.FileName,
+                        FraudFlagType.DocumentTypeMismatch,
+                        FlagSeverity.High,
+                        $"Document '{doc.FileName}' uploaded under '{normType}' was flagged as a document type mismatch.",
+                        DocumentVerificationStatus.Mismatch
+                    ));
+                }
+                else if (doc.VerificationStatus == DocumentVerificationStatus.Unreadable)
+                {
+                    findings.Add(new DocumentIntegrityFinding(
+                        doc.Id,
+                        normType,
+                        doc.FileName,
+                        FraudFlagType.DocumentUnreadable,
+                        FlagSeverity.High,
+                        $"Document '{doc.FileName}' uploaded under '{normType}' is unreadable.",
+                        DocumentVerificationStatus.Unreadable
+                    ));
+                }
+                else if (doc.VerificationStatus == DocumentVerificationStatus.Rejected)
+                {
+                    findings.Add(new DocumentIntegrityFinding(
+                        doc.Id,
+                        normType,
+                        doc.FileName,
+                        FraudFlagType.DocumentTypeMismatch,
+                        FlagSeverity.High,
+                        $"Document '{doc.FileName}' uploaded under '{normType}' was rejected due to incompatibility.",
+                        DocumentVerificationStatus.Rejected
+                    ));
+                }
             }
         }
 

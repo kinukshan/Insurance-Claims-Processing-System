@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using InsuranceClaims.Application.Common;
 using InsuranceClaims.Application.PolicyManagement.DTOs;
 using InsuranceClaims.Domain.PolicyManagement;
 using InsuranceClaims.Domain.PolicyManagement.Enums;
@@ -41,8 +42,8 @@ public class PremiumCalculationConsistencyTests
             PolicyTypeId = PolicyClaimCompatibility.MotorInsuranceId,
             CoverageLimit = 100000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         Assert.Equal(5m, created.DeductiblePercentage);
@@ -194,8 +195,8 @@ public class PremiumCalculationConsistencyTests
             PolicyTypeId = PolicyClaimCompatibility.HealthInsuranceId,
             CoverageLimit = 200000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         var premium = await service.CalculatePremiumAsync(created.Id);
@@ -215,25 +216,31 @@ public class PremiumCalculationConsistencyTests
         await PolicyTypeSeeder.EnsurePolicyTypesSeededAsync(context);
         var service = new PolicyService(context);
 
-        var created = await service.CreateAsync(new CreatePolicyDto
+        var homeType = await context.PolicyTypes.FindAsync(PolicyClaimCompatibility.HomeInsuranceId);
+        var policy = new Policy
         {
+            Id = Guid.NewGuid(),
+            PolicyNumber = "POL-HOME-RENEW",
             PolicyholderId = Guid.NewGuid(),
             PolicyTypeId = PolicyClaimCompatibility.HomeInsuranceId,
+            PolicyType = homeType!,
             CoverageLimit = 300000m,
-            Deductible = 0m,
+            Deductible = PolicyClaimCompatibility.GetFixedDeductible("Home Insurance") ?? 15000m,
+            DeductiblePercentage = 10m,
             StartDate = DateTime.UtcNow.AddYears(-1),
-            ExpiryDate = DateTime.UtcNow.AddDays(-1)
-        });
-
-        // Activate the policy so it can be renewed after expiry
-        var activateResult = await service.UpdateAsync(created.Id, new UpdatePolicyDto { Status = "Active" });
-        Assert.NotNull(activateResult);
+            ExpiryDate = DateTime.UtcNow.AddDays(-1),
+            Status = PolicyStatus.Active,
+            RenewalStatus = RenewalStatus.NotDue
+        };
+        policy.Premium = 1500m;
+        context.Policies.Add(policy);
+        await context.SaveChangesAsync();
 
         // Expire the policy
-        var expireResult = await service.UpdateAsync(created.Id, new UpdatePolicyDto { Status = "Expired" });
+        var expireResult = await service.UpdateAsync(policy.Id, new UpdatePolicyDto { Status = "Expired" });
         Assert.NotNull(expireResult);
 
-        var renewalResult = await service.RenewPolicyAsync(created.Id);
+        var renewalResult = await service.RenewPolicyAsync(policy.Id);
 
         Assert.True(renewalResult.Success);
         Assert.NotNull(renewalResult.RenewedPolicyId);
@@ -262,8 +269,8 @@ public class PremiumCalculationConsistencyTests
             PolicyTypeId = PolicyClaimCompatibility.LifeInsuranceId,
             CoverageLimit = 500000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         Assert.Equal(0m, created.DeductiblePercentage);
@@ -298,8 +305,8 @@ public class PremiumCalculationConsistencyTests
             PolicyTypeId = PolicyClaimCompatibility.MotorInsuranceId,
             CoverageLimit = 100000m,
             Deductible = 0m,
-            StartDate = DateTime.UtcNow,
-            ExpiryDate = DateTime.UtcNow.AddYears(1)
+            StartDate = BusinessCalendar.Default.Today,
+            ExpiryDate = BusinessCalendar.Default.Today.AddYears(1)
         });
 
         Assert.Equal(5m, created.DeductiblePercentage);
