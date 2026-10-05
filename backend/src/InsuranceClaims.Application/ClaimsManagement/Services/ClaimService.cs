@@ -487,31 +487,36 @@ public class ClaimService : IClaimService
             }
         }
 
-        // Recompute missing required documents deterministically based on findings and AI results
-        var requiredDocs = DocumentChecklistValidator.GetRequiredDocuments(claim.ClaimType.ToString());
-        var missingItems = new List<string>(aiResult.MissingItems ?? new List<string>());
+        // Authoritative deterministic checklist validation
+        var invalidDocIds = localEval.Findings
+            .Where(f => f.Status is DocumentVerificationStatus.Mismatch
+                     or DocumentVerificationStatus.Unreadable
+                     or DocumentVerificationStatus.Rejected)
+            .Select(f => f.DocumentId)
+            .ToHashSet();
 
-        // Any required document type that has an invalid finding (Mismatch, Unreadable, Rejected) must be added to missing items
-        foreach (var finding in localEval.Findings)
-        {
-            if (finding.Status is DocumentVerificationStatus.Mismatch
-                or DocumentVerificationStatus.Unreadable
-                or DocumentVerificationStatus.Rejected)
+        var validSubmittedTypes = docs
+            .Where(d => !invalidDocIds.Contains(d.Id) &&
+                        d.VerificationStatus != DocumentVerificationStatus.Rejected &&
+                        d.VerificationStatus != DocumentVerificationStatus.Mismatch &&
+                        d.VerificationStatus != DocumentVerificationStatus.Unreadable)
+            .Where(d =>
             {
-                var reqMatch = requiredDocs.FirstOrDefault(r => DocumentChecklistValidator.NormalizeDocumentType(r).Equals(finding.DocumentType, StringComparison.OrdinalIgnoreCase));
-                if (reqMatch != null && !missingItems.Contains(reqMatch, StringComparer.OrdinalIgnoreCase))
-                {
-                    missingItems.Add(reqMatch);
-                }
-            }
-        }
+                var norm = DocumentIntegrityValidator.NormalizeDocumentType(d.DocumentType);
+                return DocumentIntegrityValidator.IsFormatCompatibleWithExtension(d.FileName, norm);
+            })
+            .Select(d => d.DocumentType)
+            .ToList();
+
+        var missingItems = DocumentChecklistValidator.GetMissingDocuments(claim.ClaimType.ToString(), validSubmittedTypes);
 
         var hasInvalidFindings = localEval.HasMismatches
                                  || localEval.HasUnreadable
                                  || localEval.Findings.Any(f => f.Status is DocumentVerificationStatus.Rejected or DocumentVerificationStatus.Mismatch or DocumentVerificationStatus.Unreadable);
 
-        // Gemini must NEVER override deterministic completeness
-        var isComplete = aiResult.Complete && !hasInvalidFindings && missingItems.Count == 0;
+        // Completeness is determined ONLY by authoritative deterministic backend validation.
+        // AI service results or failures must never veto completeness or override invalid/missing documents.
+        var isComplete = !hasInvalidFindings && missingItems.Count == 0;
 
         Guid attemptId;
         if (existingAttempt != null)

@@ -1012,6 +1012,268 @@ public class DocumentTypeIntegrityRegressionTests
         Assert.True(reqs.Complete);
     }
 
+    // ── Test 16: All four valid Health documents, AI service returns 502 fallback -> Complete = true, FallbackUsed = true ──
+    [Fact]
+    public async Task Regression_Health16_AllFourValidHealthDocs_AiService502Fallback_CompleteIsTrue()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: false,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string> { "Document verification service unavailable: Response status code does not indicate success: 502 (Bad Gateway)." },
+            AiUsed: false,
+            AiProvider: null,
+            AiModel: null,
+            ReasoningSummary: null,
+            FallbackUsed: true
+        ));
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-16",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/med_report.pdf", MedicalReportPdfBytes);
+        storage.SetFileBytes("/uploads/hosp_bill.pdf", HospitalBillPdfBytes);
+        storage.SetFileBytes("/uploads/prescription.pdf", PrescriptionPdfBytes);
+        storage.SetFileBytes("/uploads/dummy_doctor_referral.pdf", GenuineDoctorReferralPdfBytes);
+
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Medical Report", FileName = "medical_report.pdf", FileUrl = "/uploads/med_report.pdf", FileSize = MedicalReportPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Hospital Bills", FileName = "hospital_bill.pdf", FileUrl = "/uploads/hosp_bill.pdf", FileSize = HospitalBillPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Prescription", FileName = "prescription.pdf", FileUrl = "/uploads/prescription.pdf", FileSize = PrescriptionPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "dummy_doctor_referral.pdf", FileUrl = "/uploads/dummy_doctor_referral.pdf", FileSize = GenuineDoctorReferralPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+
+        Assert.True(verifResult.Complete);
+        Assert.True(verifResult.FallbackUsed);
+        Assert.False(verifResult.AiUsed);
+        Assert.Empty(verifResult.MissingItems);
+        Assert.Contains(verifResult.Warnings, w => w.Contains("502 (Bad Gateway)"));
+    }
+
+    // ── Test 17: All four valid Health documents, AI returns Complete = false -> deterministic Complete = true ──
+    [Fact]
+    public async Task Regression_Health17_AllFourValidHealthDocs_AiReturnsCompleteFalse_DeterministicSuccessPrevails()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: false,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: true,
+            AiProvider: "Gemini",
+            AiModel: "gemini-2.5-flash",
+            ReasoningSummary: "AI mistakenly evaluated claim as incomplete.",
+            FallbackUsed: false
+        ));
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-17",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/med_report.pdf", MedicalReportPdfBytes);
+        storage.SetFileBytes("/uploads/hosp_bill.pdf", HospitalBillPdfBytes);
+        storage.SetFileBytes("/uploads/prescription.pdf", PrescriptionPdfBytes);
+        storage.SetFileBytes("/uploads/dummy_doctor_referral.pdf", GenuineDoctorReferralPdfBytes);
+
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Medical Report", FileName = "medical_report.pdf", FileUrl = "/uploads/med_report.pdf", FileSize = MedicalReportPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Hospital Bills", FileName = "hospital_bill.pdf", FileUrl = "/uploads/hosp_bill.pdf", FileSize = HospitalBillPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Prescription", FileName = "prescription.pdf", FileUrl = "/uploads/prescription.pdf", FileSize = PrescriptionPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "dummy_doctor_referral.pdf", FileUrl = "/uploads/dummy_doctor_referral.pdf", FileSize = GenuineDoctorReferralPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+
+        // AI returning Complete=false cannot veto deterministic success
+        Assert.True(verifResult.Complete);
+        Assert.Empty(verifResult.MissingItems);
+        Assert.True(verifResult.AiUsed);
+        Assert.False(verifResult.FallbackUsed);
+    }
+
+    // ── Test 18: Architecture PDF tagged Doctor Referral, AI returns Complete = true -> Complete = false ──
+    [Fact]
+    public async Task Regression_Health18_ArchitecturePdfTaggedDoctorReferral_AiSaysCompleteTrue_DeterministicFailurePrevails()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: true,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: true,
+            AiProvider: "Gemini",
+            AiModel: "gemini-2.5-flash",
+            ReasoningSummary: "AI hallucinated that architecture slides are a valid doctor referral.",
+            FallbackUsed: false
+        ));
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-18",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/architecture.pdf", ArchitecturePdfBytes);
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "06 - Architecture Patterns.pdf", FileUrl = "/uploads/architecture.pdf", FileSize = ArchitecturePdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+
+        // AI returning Complete=true cannot override deterministic mismatch failure
+        Assert.False(verifResult.Complete);
+        Assert.Contains("Doctor Referral", verifResult.MissingItems);
+        Assert.Contains(verifResult.Inconsistencies, i => i.Field == "Doctor Referral");
+    }
+
+    // ── Test 19: One required Health doc genuinely missing, AI returns Complete = true -> Complete = false ──
+    [Fact]
+    public async Task Regression_Health19_OneRequiredHealthDocGenuinelyMissing_AiSaysCompleteTrue_CompleteIsFalse()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+
+        var aiClient = new ConfigurableAiClient(new DocumentVerificationResultDto(
+            Complete: true,
+            MissingItems: new List<string>(),
+            Inconsistencies: new List<DocumentInconsistencyDto>(),
+            Warnings: new List<string>(),
+            AiUsed: true,
+            AiProvider: "Gemini",
+            AiModel: "gemini-2.5-flash",
+            ReasoningSummary: "AI erroneously marked incomplete document checklist as complete.",
+            FallbackUsed: false
+        ));
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-19",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/med_report.pdf", MedicalReportPdfBytes);
+        storage.SetFileBytes("/uploads/hosp_bill.pdf", HospitalBillPdfBytes);
+        storage.SetFileBytes("/uploads/prescription.pdf", PrescriptionPdfBytes);
+        // Doctor Referral is genuinely missing (not uploaded at all)
+
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Medical Report", FileName = "medical_report.pdf", FileUrl = "/uploads/med_report.pdf", FileSize = MedicalReportPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Hospital Bills", FileName = "hospital_bill.pdf", FileUrl = "/uploads/hosp_bill.pdf", FileSize = HospitalBillPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Prescription", FileName = "prescription.pdf", FileUrl = "/uploads/prescription.pdf", FileSize = PrescriptionPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+
+        // AI returning Complete=true cannot override genuinely missing required document
+        Assert.False(verifResult.Complete);
+        Assert.Contains("Doctor Referral", verifResult.MissingItems);
+    }
+
+    // ── Test 20: All four valid Health documents, AI service throws -> Complete = true, FallbackUsed = true ──
+    [Fact]
+    public async Task Regression_Health20_AllFourValidHealthDocs_AiThrowsException_FallbackUsedAndCompleteIsTrue()
+    {
+        var claimRepo = new FakeClaimRepository();
+        var storage = new FakeDocumentStorageService();
+        var policyVal = new FakePolicyValidationService();
+        var aiClient = new FailingAiClient();
+
+        var service = new ClaimService(claimRepo, storage, policyVal, aiClient);
+
+        var claimId = Guid.NewGuid();
+        var claim = new Claim
+        {
+            Id = claimId,
+            PolicyHolderId = OwnerId,
+            ClaimNumber = "CLM-HLT-REG-20",
+            ClaimType = ClaimType.Health,
+            Status = ClaimStatus.Submitted,
+            IncidentDate = DateTime.UtcNow.AddDays(-2),
+            ClaimedAmount = 50000m
+        };
+
+        storage.SetFileBytes("/uploads/med_report.pdf", MedicalReportPdfBytes);
+        storage.SetFileBytes("/uploads/hosp_bill.pdf", HospitalBillPdfBytes);
+        storage.SetFileBytes("/uploads/prescription.pdf", PrescriptionPdfBytes);
+        storage.SetFileBytes("/uploads/dummy_doctor_referral.pdf", GenuineDoctorReferralPdfBytes);
+
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Medical Report", FileName = "medical_report.pdf", FileUrl = "/uploads/med_report.pdf", FileSize = MedicalReportPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Hospital Bills", FileName = "hospital_bill.pdf", FileUrl = "/uploads/hosp_bill.pdf", FileSize = HospitalBillPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Prescription", FileName = "prescription.pdf", FileUrl = "/uploads/prescription.pdf", FileSize = PrescriptionPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Doctor Referral", FileName = "dummy_doctor_referral.pdf", FileUrl = "/uploads/dummy_doctor_referral.pdf", FileSize = GenuineDoctorReferralPdfBytes.Length, VerificationStatus = DocumentVerificationStatus.Pending }
+        };
+        await claimRepo.AddAsync(claim);
+
+        var verifResult = await service.VerifyDocumentsAsync(claimId, OwnerId, Role.Policyholder);
+
+        Assert.True(verifResult.Complete);
+        Assert.True(verifResult.FallbackUsed);
+        Assert.False(verifResult.AiUsed);
+        Assert.Empty(verifResult.MissingItems);
+    }
+
     // ── Helper test fakes ──
 
     private class ConfigurableAiClient : IDocumentVerificationClient

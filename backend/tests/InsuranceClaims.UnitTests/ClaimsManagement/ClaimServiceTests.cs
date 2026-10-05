@@ -550,6 +550,7 @@ public class ClaimServiceTests
     public async Task VerifyDocuments_ReturnsAgentResult_WithAiMetadata()
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await AttachValidAutoDocumentsAsync(created.Id);
         var result = await _service.VerifyDocumentsAsync(created.Id, UserId, Role.Policyholder);
 
         Assert.NotNull(result);
@@ -559,6 +560,18 @@ public class ClaimServiceTests
         Assert.Equal("gemini-2.5-flash", result.AiModel);
         Assert.NotNull(result.ReasoningSummary);
         Assert.False(result.FallbackUsed);
+    }
+
+    [Fact]
+    public async Task VerifyDocuments_WithMissingDocuments_ReturnsCompleteFalse()
+    {
+        var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        var result = await _service.VerifyDocumentsAsync(created.Id, UserId, Role.Policyholder);
+
+        Assert.NotNull(result);
+        Assert.False(result.Complete);
+        Assert.Equal(4, result.MissingItems.Count);
+        Assert.Contains("Police Report", result.MissingItems);
     }
 
     [Fact]
@@ -573,10 +586,24 @@ public class ClaimServiceTests
     public async Task VerifyDocuments_AsClaimsAdjuster_Succeeds()
     {
         var created = await _service.CreateClaimAsync(UserId, MakeCreateDto());
+        await AttachValidAutoDocumentsAsync(created.Id);
         var result = await _service.VerifyDocumentsAsync(created.Id, OtherUserId, Role.ClaimsAdjuster);
 
         Assert.NotNull(result);
         Assert.True(result.Complete);
+    }
+
+    private async Task AttachValidAutoDocumentsAsync(Guid claimId)
+    {
+        var claim = await _claimRepository.GetByIdAsync(claimId);
+        if (claim == null) return;
+        claim.Documents = new List<ClaimDocument>
+        {
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Police Report", FileName = "police.pdf", FileUrl = "/uploads/police.pdf", FileSize = 1024, VerificationStatus = DocumentVerificationStatus.Verified },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Repair Estimate", FileName = "estimate.pdf", FileUrl = "/uploads/estimate.pdf", FileSize = 1024, VerificationStatus = DocumentVerificationStatus.Verified },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Driver License", FileName = "license.pdf", FileUrl = "/uploads/license.pdf", FileSize = 1024, VerificationStatus = DocumentVerificationStatus.Verified },
+            new() { Id = Guid.NewGuid(), ClaimId = claimId, DocumentType = "Photos of Damage", FileName = "damage.jpg", FileUrl = "/uploads/damage.jpg", FileSize = 1024, VerificationStatus = DocumentVerificationStatus.Verified }
+        };
     }
 
     // ── Helpers ──
