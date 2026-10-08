@@ -42,7 +42,10 @@ if (swaggerEnabled)
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseHttpsRedirection();
+}
 
 // CORS
 app.UseCors("AllowFrontend");
@@ -59,4 +62,24 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+try
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<InsuranceClaims.Infrastructure.Persistence.ApplicationDbContext>();
+    if (db.Database.ProviderName?.Contains("InMemory") == true)
+    {
+        await db.Database.EnsureCreatedAsync();
+        if (!await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(db.PolicyTypes))
+        {
+            await InsuranceClaims.Infrastructure.Persistence.Seed.PolicyTypeSeeder.EnsurePolicyTypesSeededAsync(db);
+        }
+    }
+}
+catch
+{
+    // Ignore seed concurrency races during parallel test host instantiation
+}
+
 app.Run();
+
+public partial class Program { }

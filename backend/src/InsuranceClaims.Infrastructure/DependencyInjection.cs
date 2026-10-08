@@ -40,9 +40,23 @@ public static class DependencyInjection
         services.AddSingleton(configuration);
 
         // Database
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(
-                configuration.GetConnectionString("DefaultConnection")));
+        var defaultConn = configuration.GetConnectionString("DefaultConnection");
+        var useInMemory = configuration.GetValue<bool>("UseInMemoryDatabase")
+                          || string.Equals(configuration["Environment"], "Testing", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Testing", StringComparison.OrdinalIgnoreCase)
+                          || string.IsNullOrWhiteSpace(defaultConn);
+
+        if (useInMemory)
+        {
+            var inMemoryDbName = configuration["InMemoryDbName"] ?? "InsuranceClaims_TestDb";
+            services.AddDbContext<ApplicationDbContext>(options =>
+                options.UseInMemoryDatabase(inMemoryDbName));
+        }
+        else
+        {
+            services.AddDbContext<ApplicationDbContext>(options =>
+                options.UseNpgsql(defaultConn));
+        }
 
         // ── Authentication ───────────────────────────────────────────
         services.AddSingleton<PasswordService>();
@@ -50,7 +64,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
 
         // JWT Bearer authentication
-        var jwtKey = configuration["Jwt:Key"];
+        var jwtKey = configuration["Jwt:Key"] ?? "SuperSecretTestKey_AtLeast32CharactersLong_ForHmacSha256!";
         if (!string.IsNullOrEmpty(jwtKey))
         {
             services.AddAuthentication(options =>
