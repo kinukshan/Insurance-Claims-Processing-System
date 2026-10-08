@@ -1,0 +1,581 @@
+{
+  "info": {
+    "_postman_id": "c71a39f0-2f92-4f35-a7ec-7c98e1b9b12d",
+    "name": "Insurance Claims System - Backend API Tests",
+    "description": "Comprehensive automated API test suite for SE3090 Assignment 1.\nValidates Policy Management, Authentication, Authorization, Domain Validation Rules, and Data Persistence.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "API-01 — Policy Types",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response is valid JSON\", function () {",
+              "    pm.response.to.be.json;",
+              "});",
+              "",
+              "pm.test(\"Response contains at least one active policy type and captures ID\", function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.be.an(\"array\").that.is.not.empty;",
+              "    pm.expect(jsonData[0]).to.have.property(\"id\");",
+              "    pm.expect(jsonData[0]).to.have.property(\"name\");",
+              "    ",
+              "    const policyTypeId = jsonData[0].id;",
+              "    pm.environment.set(\"policyTypeId\", policyTypeId);",
+              "    console.log(\"Captured policyTypeId: \" + policyTypeId);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/PolicyTypes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "PolicyTypes"
+          ]
+        },
+        "description": "Public reference data endpoint. Retrieves active policy types and captures a valid PolicyType ID."
+      },
+      "response": []
+    },
+    {
+      "name": "API-02 — Authentication Protection",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 401 Unauthorized\", function () {",
+              "    pm.response.to.have.status(401);",
+              "});",
+              "",
+              "pm.test(\"Unauthenticated access is rejected\", function () {",
+              "    pm.expect(pm.response.code).to.eql(401);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/Policies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Policies"
+          ]
+        },
+        "description": "Verifies that protected endpoint /api/Policies rejects unauthenticated requests without an Authorization header."
+      },
+      "response": []
+    },
+    {
+      "name": "API-03 — Underwriter Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"JWT token exists and role is Underwriter\", function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"token\");",
+              "    pm.expect(jsonData.token).to.be.a(\"string\").that.is.not.empty;",
+              "    ",
+              "    if (jsonData.role) {",
+              "        pm.expect(jsonData.role).to.eql(\"Underwriter\");",
+              "    }",
+              "    ",
+              "    pm.environment.set(\"underwriterToken\", jsonData.token);",
+              "    console.log(\"Captured underwriterToken successfully (length: \" + jsonData.token.length + \")\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"underwriter@test.com\",\n  \"password\": \"{{staffPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/Auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Auth",
+            "login"
+          ]
+        },
+        "description": "Authenticates the seeded Underwriter staff account using secure staff password environment variable and captures the JWT token."
+      },
+      "response": []
+    },
+    {
+      "name": "API-04 — Authenticated User Profile",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Profile matches authenticated Underwriter\", function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData.email).to.eql(\"underwriter@test.com\");",
+              "    pm.expect(jsonData.role).to.eql(\"Underwriter\");",
+              "    ",
+              "    if (jsonData.hasOwnProperty(\"isActive\")) {",
+              "        pm.expect(jsonData.isActive).to.be.true;",
+              "    }",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{underwriterToken}}"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/Auth/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Auth",
+            "me"
+          ]
+        },
+        "description": "Validates current user identity using Bearer token authentication."
+      },
+      "response": []
+    },
+    {
+      "name": "API-05 — ClaimsAdjuster Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"JWT token exists and role is ClaimsAdjuster\", function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"token\");",
+              "    pm.expect(jsonData.token).to.be.a(\"string\").that.is.not.empty;",
+              "    ",
+              "    if (jsonData.role) {",
+              "        pm.expect(jsonData.role).to.eql(\"ClaimsAdjuster\");",
+              "    }",
+              "    ",
+              "    pm.environment.set(\"adjusterToken\", jsonData.token);",
+              "    console.log(\"Captured adjusterToken successfully (length: \" + jsonData.token.length + \")\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"adjuster@test.com\",\n  \"password\": \"{{staffPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/Auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Auth",
+            "login"
+          ]
+        },
+        "description": "Authenticates the seeded ClaimsAdjuster staff account and captures adjusterToken."
+      },
+      "response": []
+    },
+    {
+      "name": "API-06 — Role-Based Authorization",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 403 Forbidden\", function () {",
+              "    pm.response.to.have.status(403);",
+              "});",
+              "",
+              "pm.test(\"ClaimsAdjuster is rejected from Underwriter/Admin restricted endpoint\", function () {",
+              "    pm.expect(pm.response.code).to.eql(403);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adjusterToken}}"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/Policies/validate-expiry",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Policies",
+            "validate-expiry"
+          ]
+        },
+        "description": "Tests role-based access control. ClaimsAdjuster attempts to invoke Underwriter/Admin restricted endpoint /api/Policies/validate-expiry and is rejected with 403 Forbidden."
+      },
+      "response": []
+    },
+    {
+      "name": "API-07 — Invalid Policy Validation",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 400 Bad Request\", function () {",
+              "    pm.response.to.have.status(400);",
+              "});",
+              "",
+              "pm.test(\"Validation rejects invalid CoverageLimit, Deductible, and DeductiblePercentage\", function () {",
+              "    const responseText = pm.response.text();",
+              "    pm.expect(responseText).to.include(\"Coverage limit must be greater than zero.\");",
+              "    pm.expect(responseText).to.include(\"Deductible cannot be negative.\");",
+              "    pm.expect(responseText).to.include(\"Deductible percentage must be between 0 and 100.\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{underwriterToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"policyholderId\": \"11111111-1111-1111-1111-111111111111\",\n  \"policyTypeId\": \"{{policyTypeId}}\",\n  \"coverageLimit\": -100,\n  \"deductible\": -50,\n  \"deductiblePercentage\": 150,\n  \"startDate\": \"2026-10-10T00:00:00Z\",\n  \"expiryDate\": \"2027-10-10T00:00:00Z\",\n  \"exclusions\": \"Deliberately invalid test values\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/Policies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Policies"
+          ]
+        },
+        "description": "Submits invalid numeric ranges (negative limit, negative deductible, >100% deductible percentage) to verify ASP.NET Core validation rules return 400 Bad Request with precise error messages."
+      },
+      "response": []
+    },
+    {
+      "name": "API-08 — Register Test Policyholder",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const timestamp = Date.now();",
+              "const testEmail = `qmse.policyholder.${timestamp}@test.com`;",
+              "pm.environment.set(\"testPolicyholderEmail\", testEmail);",
+              "console.log(\"Generated unique test policyholder email: \" + testEmail);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201 Created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Policyholder registered and credentials captured\", function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"userId\");",
+              "    pm.expect(jsonData.userId).to.be.a(\"string\").that.is.not.empty;",
+              "    ",
+              "    pm.environment.set(\"policyholderId\", jsonData.userId);",
+              "    console.log(\"Captured policyholderId: \" + jsonData.userId);",
+              "    ",
+              "    if (jsonData.token) {",
+              "        pm.environment.set(\"policyholderToken\", jsonData.token);",
+              "        console.log(\"Captured policyholderToken successfully (length: \" + jsonData.token.length + \")\");",
+              "    }",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"firstName\": \"Test\",\n  \"lastName\": \"Policyholder\",\n  \"email\": \"{{testPolicyholderEmail}}\",\n  \"password\": \"{{policyholderPassword}}\",\n  \"confirmPassword\": \"{{policyholderPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/Auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Auth",
+            "register"
+          ]
+        },
+        "description": "Registers a dynamic test Policyholder account with unique timestamped email to ensure clean execution on every test run."
+      },
+      "response": []
+    },
+    {
+      "name": "API-09 — Valid Policy Creation",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const now = new Date();",
+              "const startDate = new Date(now.getTime() + 86400000).toISOString();",
+              "const expiryDate = new Date(now.getTime() + (365 * 86400000)).toISOString();",
+              "pm.variables.set(\"calculatedStartDate\", startDate);",
+              "pm.variables.set(\"calculatedExpiryDate\", expiryDate);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201 Created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Created policy contains valid ID and matches input relations\", function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"string\").that.is.not.empty;",
+              "    ",
+              "    const expectedPolicyholderId = pm.environment.get(\"policyholderId\");",
+              "    const expectedPolicyTypeId = pm.environment.get(\"policyTypeId\");",
+              "    ",
+              "    pm.expect(jsonData.policyholderId.toLowerCase()).to.eql(expectedPolicyholderId.toLowerCase());",
+              "    pm.expect(jsonData.policyTypeId.toLowerCase()).to.eql(expectedPolicyTypeId.toLowerCase());",
+              "    ",
+              "    pm.environment.set(\"policyId\", jsonData.id);",
+              "    console.log(\"Captured policyId: \" + jsonData.id);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{underwriterToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"policyholderId\": \"{{policyholderId}}\",\n  \"policyTypeId\": \"{{policyTypeId}}\",\n  \"coverageLimit\": 1000000,\n  \"deductible\": 10000,\n  \"deductiblePercentage\": 1,\n  \"startDate\": \"{{calculatedStartDate}}\",\n  \"expiryDate\": \"{{calculatedExpiryDate}}\",\n  \"exclusions\": \"Postman/Newman API persistence test\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/Policies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Policies"
+          ]
+        },
+        "description": "Creates a valid insurance policy under the Underwriter role linked to the dynamically created Policyholder. Note: Domain business logic intentionally overrides deductible values with authoritative policy type configuration."
+      },
+      "response": []
+    },
+    {
+      "name": "API-10 — Retrieve Created Policy",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response is valid JSON\", function () {",
+              "    pm.response.to.be.json;",
+              "});",
+              "",
+              "pm.test(\"Retrieved policy matches created policy ID and relations\", function () {",
+              "    const jsonData = pm.response.json();",
+              "    const expectedPolicyId = pm.environment.get(\"policyId\");",
+              "    const expectedPolicyholderId = pm.environment.get(\"policyholderId\");",
+              "    const expectedPolicyTypeId = pm.environment.get(\"policyTypeId\");",
+              "    ",
+              "    pm.expect(jsonData.id.toLowerCase()).to.eql(expectedPolicyId.toLowerCase());",
+              "    pm.expect(jsonData.policyholderId.toLowerCase()).to.eql(expectedPolicyholderId.toLowerCase());",
+              "    pm.expect(jsonData.policyTypeId.toLowerCase()).to.eql(expectedPolicyTypeId.toLowerCase());",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{underwriterToken}}"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/Policies/{{policyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Policies",
+            "{{policyId}}"
+          ]
+        },
+        "description": "Verifies persistence and end-to-end data retrieval of the created policy by its unique GUID."
+      },
+      "response": []
+    }
+  ]
+}

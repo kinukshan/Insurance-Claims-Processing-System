@@ -77,3 +77,8 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 backend/src/InsuranceClaims.Api/uploads/
+
+# Postman/Newman local generated files
+testing/postman/node_modules/
+testing/postman/results/*.html
+testing/postman/results/*.txt

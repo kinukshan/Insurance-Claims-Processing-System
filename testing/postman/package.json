@@ -1,0 +1,16 @@
+{
+  "name": "@test/postman",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "newman run InsuranceClaims_API_Tests.postman_collection.json -e InsuranceClaims_Local.postman_environment.json -r cli,htmlextra --reporter-htmlextra-export results/newman-report.html"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "newman": "^6.2.2",
+    "newman-reporter-htmlextra": "^1.23.1"
+  }
+}
