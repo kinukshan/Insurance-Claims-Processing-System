@@ -51,6 +51,7 @@ export GEMINI_MODEL="gemini-2.5-flash"
 > **Fallback Mode**: If `GEMINI_API_KEY` is not provided, the service will start and operate in **deterministic fallback mode**. All business rules, checklists, risk scoring, and validations continue working without disruption.
 
 ### 3. Activate Python Virtual Environment
+Python 3.9+ is supported (Python 3.10+ recommended). Note: On macOS using system Python 3.9.6, `urllib3` may emit a `NotOpenSSLWarning` due to `LibreSSL 2.8.3`; this is cosmetic and automatically suppressed in `pytest.ini`.
 
 ```bash
 cd ai-service

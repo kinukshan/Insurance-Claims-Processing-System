@@ -2,7 +2,7 @@
  * Tests for PayoutApproval page component.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import React from 'react'
 
 // Mock the auth context
@@ -343,7 +343,7 @@ describe('PayoutApproval', () => {
       resolveExecute = resolve
     })
     const approvedPayout = { ...mockPayout, status: 2, statusDisplay: 'Approved', approvedBy: 'Test Underwriter' }
-    getPayoutById.mockResolvedValueOnce(approvedPayout)
+    getPayoutById.mockResolvedValue(approvedPayout)
     executePayout.mockReturnValueOnce(executePromise)
 
     render(<PayoutApproval />)
@@ -358,13 +358,19 @@ describe('PayoutApproval', () => {
     expect(screen.getByText('Processing Payment...')).toBeTruthy()
     expect(screen.queryByText('Sending to PayPal Sandbox...')).toBeNull()
 
-    resolveExecute({
-      payoutId: 'payout-1',
-      transactionId: 'tx-1',
-      provider: 'Mock',
-      providerTransactionId: 'MOCK-PAY-12345',
-      status: 'Succeeded',
-      message: 'MOCK: Payment completed successfully.'
+    await act(async () => {
+      resolveExecute({
+        payoutId: 'payout-1',
+        transactionId: 'tx-1',
+        provider: 'Mock',
+        providerTransactionId: 'MOCK-PAY-12345',
+        status: 'Succeeded',
+        message: 'MOCK: Payment completed successfully.'
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Processing Payment...')).toBeNull()
     })
   })
 
@@ -377,7 +383,7 @@ describe('PayoutApproval', () => {
       approvedBy: 'Test Underwriter',
       paymentProvider: 'PayPalSandbox'
     }
-    getPayoutById.mockResolvedValueOnce(payPalPayout)
+    getPayoutById.mockResolvedValue(payPalPayout)
 
     let resolveExecute
     const executePromise = new Promise((resolve) => {
@@ -399,12 +405,18 @@ describe('PayoutApproval', () => {
     expect(screen.getByText('Sending to PayPal Sandbox...')).toBeTruthy()
     expect(screen.queryByText('Processing Payment...')).toBeNull()
 
-    resolveExecute({
-      payoutId: 'payout-1',
-      transactionId: 'tx-paypal-1',
-      provider: 'PayPalSandbox',
-      status: 'Processing',
-      message: 'PayPal Sandbox payout created.'
+    await act(async () => {
+      resolveExecute({
+        payoutId: 'payout-1',
+        transactionId: 'tx-paypal-1',
+        provider: 'PayPalSandbox',
+        status: 'Processing',
+        message: 'PayPal Sandbox payout created.'
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Sending to PayPal Sandbox...')).toBeNull()
     })
   })
 

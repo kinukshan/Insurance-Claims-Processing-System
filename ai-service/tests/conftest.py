@@ -6,6 +6,9 @@ Normal unit tests must NEVER make live Gemini API calls.
 Live calls are strictly restricted to tests marked with @pytest.mark.live_ai.
 """
 
+import warnings
+warnings.filterwarnings("ignore", message=".*urllib3 v2 only supports OpenSSL.*")
+
 import pytest
 
 
